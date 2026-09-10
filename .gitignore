@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+android/local.properties
 
 # Expo
 .expo/

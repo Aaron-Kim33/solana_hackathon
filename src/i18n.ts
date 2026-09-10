@@ -1,0 +1,56 @@
+export type Language = 'ko' | 'en';
+export const ko = {
+  intro: '나무를 탭하고, 목재는 5초 안에 드래그하세요.',
+  dragging: '목재를 드래그하는 동안에는 벨 수 없어요.',
+  tired: '너무 지쳤어요. 잠시 쉬어가세요.',
+  felled: '고목을 베었어요! 새 나무를 계속 벨 수 있어요.',
+  rhythm: '좋은 리듬! 목재 +{value}',
+  dropped: '목재 +{value} · 5초 안에 드래그하세요.',
+  collected: '목재 +{value} 회수!',
+  rested: '숨을 고릅니다. 피로도 -28',
+  connected: '{value} 지갑이 연결됐어요.',
+  walletError: '지갑 연결을 완료하지 못했어요. 호환 지갑이 설치되어 있는지 확인하고 다시 시도하세요.',
+  wallet: '지갑 연결', connecting: '연결 중…', wood: '목재', axe: '도끼',
+  durability: '고목 내구도', fatigue: '피로도', chop: '나무 베기',
+  tap: '탭하여 벌목', collecting: '수집 중', rest: '휴식', cart: '드래그하여 회수 · 5초',
+  language: '언어', pickup: '목재 {value}개 회수',
+  achievement: '첫 수확 · 목재 20개', record: 'Devnet에 기록',
+  recordHint: '이번 플레이에서 20개를 모으면 기록할 수 있어요.',
+  recordConfirm: '지갑에 공개 기념 기록을 요청합니다. 테스트 SOL 수수료가 필요해요. 목재는 소모되지 않아요.',
+  cancel: '취소', approve: '계속', recording: '기록 확인 중…',
+  recorded: '첫 수확을 Devnet에 기록했어요!',
+  recordError: '기록을 완료하지 못했어요. 지갑의 테스트 SOL과 네트워크를 확인하세요.',
+  recordPending: '전송됐지만 아직 확정되지 않았어요. 탐색기에서 확인하세요.',
+  explorer: '거래 보기', explorerError: '거래 페이지를 열 수 없어요.',
+  connectFirst: '먼저 지갑을 연결하세요.',
+} as const;
+export type TranslationKey = keyof typeof ko;
+export const en: Record<TranslationKey, string> = {
+  intro: 'Tap the tree. Drag each log within 5 seconds.',
+  dragging: 'Finish dragging before chopping again.',
+  tired: 'You are exhausted. Take a short rest.',
+  felled: 'Tree felled! Keep chopping the new tree.',
+  rhythm: 'Great rhythm! +{value} wood',
+  dropped: '+{value} wood · Drag within 5 seconds.',
+  collected: '+{value} wood collected!',
+  rested: 'Catch your breath. Fatigue −28',
+  connected: 'Wallet {value} connected.',
+  walletError: 'Could not connect. Check that a compatible wallet is installed and try again.',
+  wallet: 'Connect wallet', connecting: 'Connecting…', wood: 'Wood', axe: 'Axe',
+  durability: 'Tree durability', fatigue: 'Fatigue', chop: 'Chop tree',
+  tap: 'TAP TO CHOP', collecting: 'COLLECTING', rest: 'Rest', cart: 'Drag to collect · 5s',
+  language: 'Language', pickup: 'Collect {value} wood',
+  achievement: 'First harvest · 20 wood', record: 'Record on Devnet',
+  recordHint: 'Collect 20 wood in this session to unlock.',
+  recordConfirm: 'Ask your wallet to sign a public commemorative record. A test SOL fee is required. Your wood is not spent.',
+  cancel: 'Cancel', approve: 'Continue', recording: 'Confirming record…',
+  recorded: 'First harvest recorded on Devnet!',
+  recordError: 'Could not record. Check your test SOL balance and network connection.',
+  recordPending: 'Submitted, but not confirmed yet. Check the explorer.',
+  explorer: 'View transaction', explorerError: 'Could not open the transaction page.',
+  connectFirst: 'Connect your wallet first.',
+};
+export type GameMessage = { key: TranslationKey; value?: string | number };
+export function translate(language: Language, key: TranslationKey, value?: string | number) {
+  return (language === 'ko' ? ko[key] : en[key]).replace('{value}', String(value ?? ''));
+}

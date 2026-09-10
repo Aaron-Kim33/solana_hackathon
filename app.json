@@ -1,15 +1,17 @@
 {
   "expo": {
-    "name": "lumber-rush",
+    "name": "Lumber Rush",
     "slug": "lumber-rush",
     "version": "1.0.0",
+    "scheme": "lumberrush",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.lumberrush.seeker",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
