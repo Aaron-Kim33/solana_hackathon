@@ -1,0 +1,30 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { PublicKey } from '@solana/web3.js';
+import { createApi } from './http-api.mjs';
+// A shared :memory: path would create separate databases for store and auth.
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+test('HTTP login, account retrieval, rejection, logout end to end', async t => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumber-http-'));
+  const server = createApi({ path: join(folder, 'test.sqlite'), origin: 'https://lumber-rush.example' });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(folder, { recursive: true, force: true }); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (path, data, token) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(data) });
+  assert.equal((await fetch(base + '/me')).status, 401);
+  const pair = generateKeyPairSync('ed25519'), wallet = new PublicKey(pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)).toBase58();
+  const c = await (await post('/auth/challenge', { wallet })).json();
+  const signature = sign(null, Buffer.from(c.message), pair.privateKey).toString('base64');
+  const session = await (await post('/auth/login', { challengeId: c.challengeId, signature })).json();
+  assert.equal(typeof session.token, 'string');
+  const me = await (await fetch(base + '/me', { headers: { Authorization: `Bearer ${session.token}` } })).json();
+  assert.equal(me.progress.wood, 0);
+  assert.equal((await post('/auth/login', { challengeId: c.challengeId, signature })).status, 401);
+  assert.equal((await post('/auth/challenge', { wallet, wood: 900 })).status, 400);
+  assert.equal((await post('/auth/logout', {}, session.token)).status, 200);
+  assert.equal((await fetch(base + '/me', { headers: { Authorization: `Bearer ${session.token}` } })).status, 401);
+});

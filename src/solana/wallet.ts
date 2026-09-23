@@ -1,5 +1,6 @@
 import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
+import { deployment } from '../deployment';
 import {
   transact,
   Web3MobileWallet,
@@ -8,7 +9,7 @@ import {
 export const APP_IDENTITY = {
   name: 'Lumber Rush',
   // Reserved development domain. Replace with the published landing-page domain before release.
-  uri: 'https://lumber-rush.example',
+  uri: deployment.config?.identityOrigin ?? 'https://lumber-rush.example',
   icon: 'icon.png',
 };
 

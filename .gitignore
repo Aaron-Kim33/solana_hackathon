@@ -14,6 +14,7 @@ expo-env.d.ts
 .kotlin/
 *.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
@@ -33,9 +34,27 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
+.env.*
+!.env.example
+
+# Signing credentials and Solana wallet keypairs (including nested files)
+credentials.json
+id.json
+*keypair*.json
+*wallet*.json
 
 # typescript
 *.tsbuildinfo
+
+# Server runtime data (never commit player records)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
 
 # generated native folders
 /ios

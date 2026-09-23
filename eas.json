@@ -1,0 +1,22 @@
+{
+  "build": {
+    "preview": {
+      "environment": "preview",
+      "distribution": "internal",
+      "android": { "buildType": "apk" },
+      "env": {
+        "APP_VARIANT": "preview",
+        "EXPO_PUBLIC_APP_MODE": "server-preview"
+      }
+    },
+    "dapp-store": {
+      "environment": "production",
+      "distribution": "store",
+      "android": { "buildType": "apk" },
+      "env": {
+        "APP_VARIANT": "production",
+        "EXPO_PUBLIC_APP_MODE": "server-preview"
+      }
+    }
+  }
+}
