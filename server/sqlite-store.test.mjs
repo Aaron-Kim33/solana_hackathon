@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { openGameStore } from './sqlite-store.mjs';
+import { initialProgress, xpFloor, treeHealth, questSteps } from '../src/game/progression.ts';
 
 const request = { requestId: 'persist_001', expectedRevision: 0, command: { type: 'fuse', tier: 'low' } };
 function fixture(t) {
@@ -60,6 +61,40 @@ test('new player creation does not overwrite progress; bad commands do not write
   assert.throws(() => store.execute('missing', request), /PLAYER_NOT_FOUND/);
   assert.equal(store.load('alice').progress.gems.low, 6);
   assert.equal(store.audit('alice').length, 0);
+});
+test('server growth reward, gem opening and slot quest are atomic, single-use and persistent', t => {
+  const { store, open, path } = fixture(t);
+  const eligible = { ...initialProgress('ko'), harvested: 100, xp: xpFloor(5), axeLevel: 15,
+    treeLevel: 10, treeHp: treeHealth(10), walletCompleted: true,
+    receipt: { address: 'test', signature: 'test', status: 'confirmed' },
+    firstRecordClaimed: true, axeSkin: 'firstRecord', skinQuestHarvestStart: 0 };
+  const db = new DatabaseSync(path);
+  db.prepare('UPDATE players SET progress = ? WHERE id = ?').run(JSON.stringify(eligible), 'alice');
+  db.close();
+  assert.equal(questSteps(store.load('alice').progress)[10], 'active');
+  const claim = { requestId: 'growth_claim', expectedRevision: 0, command: { type: 'claimGrowthReward' } };
+  const claimed = store.execute('alice', claim);
+  assert.equal(claimed.progress.gems.low, 1);
+  assert.deepEqual(store.execute('alice', claim), claimed);
+  assert.throws(() => store.execute('alice', { ...claim, requestId: 'growth_again', expectedRevision: 1 }), /ACTION_UNAVAILABLE/);
+  assert.throws(() => store.execute('alice', { ...claim, requestId: 'growth_bad', expectedRevision: 1, command: { type: 'openGem', tier: 'low', item: 'low:damage' } }), /INVALID_COMMAND/);
+  const opened = store.execute('alice', { requestId: 'growth_open', expectedRevision: 1, command: { type: 'openGem', tier: 'low' } });
+  assert.equal(opened.progress.gems.low, 0);
+  assert.deepEqual(opened.progress.inventory, ['low:damage']);
+  assert.equal(opened.progress.rewardOption, 'low:damage');
+  assert.throws(() => store.execute('alice', { requestId: 'growth_wrong_slot', expectedRevision: 2,
+    command: { type: 'equipOption', slot: 1, item: 'low:damage' } }), /ACTION_UNAVAILABLE/);
+  const equip = { requestId: 'growth_equip', expectedRevision: 2, command: { type: 'equipOption', slot: 0, item: 'low:damage' } };
+  const equipped = store.execute('alice', equip);
+  assert.deepEqual(equipped.progress.slots, ['low:damage', null]);
+  assert.deepEqual(equipped.progress.inventory, []);
+  assert.equal(equipped.progress.gemSlotQuestDone, true);
+  store.close();
+  const reopened = open();
+  assert.deepEqual(reopened.execute('alice', equip), equipped);
+  assert.equal(questSteps(reopened.load('alice').progress)[12], 'complete');
+  assert.equal(reopened.audit('alice').length, 3);
+  assert.equal(reopened.load('bob').progress.growthRewardClaimed, false);
 });
 test('wallet quest grants 20 server coins once, including completed legacy accounts', t => {
   const { store, open, path } = fixture(t);

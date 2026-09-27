@@ -7,14 +7,14 @@ export function PlayGuide({ progress, saveMode, onQuests, onGems }: { progress: 
   const confirmed = progress.receipt?.status === 'confirmed';
   const rows = ko ? [
     ['1 · 벌목과 수집 사이의 선택', `나무를 길게 눌러 ${secondsPerHit}초마다 벌목하고, 손을 뗀 뒤 목재를 드래그해 회수하세요. 짧은 탭은 공격하지 않아요. 수집 중에는 벌목할 수 없고 목재는 5초 후 사라져요.`],
-    ['2 · 짧게 플레이하고 성장하기', saveMode === 'server' ? '피로도가 가득 차면 쉬어 가세요. 목재는 고목에, 코인은 선택한 도끼 강화에 사용해요. 특성·보석은 서버 저장에 아직 연결되지 않았어요.' : '피로도가 가득 차면 쉬어 가세요. 목재는 고목·특성·보석에, 코인은 선택한 도끼 강화에 사용해요.'],
+    ['2 · 짧게 플레이하고 성장하기', saveMode === 'server' ? '피로도가 가득 차면 쉬어 가세요. 목재는 고목에, 코인은 선택한 도끼 강화에 사용해요. 일부 퀘스트 보석은 서버에서 개봉할 수 있어요.' : '피로도가 가득 차면 쉬어 가세요. 목재는 고목·특성·보석에, 코인은 선택한 도끼 강화에 사용해요.'],
     ['3 · 플레이 후 지갑 연결', saveMode === 'server' ? '서버 로그인은 처음 한 번 지갑 서명이 필요해요. 서버 계정에서 목재 20개를 회수하면 지갑 퀘스트가 열려요. 타격마다 지갑 승인은 필요하지 않아요.' : saveMode === 'practice' ? '연습 후 서버 저장을 시작하려면 지갑으로 별도 로그인하세요. 연습 목재와 레벨은 서버 계정으로 옮겨지지 않아요.' : '목재 20개를 회수하면 지갑 연결이 열려요. 퀘스트를 따라 Devnet 성장 기록을 남기고 확인된 보상을 수령하세요. 매 타격마다 지갑 승인이 필요하지 않아요.'],
-    ['4 · 원하는 장비 조합 만들기', saveMode === 'server' ? '첫 기록 보상 도끼를 장착하고 강화해 보세요. 보석과 옵션 변경은 서버 저장에서 아직 사용할 수 없어요.' : '보석은 개봉하거나 합성할 수 있어요. 옵션 장착은 소모형이며 기존 옵션을 덮으면 되돌릴 수 없어요.'],
+    ['4 · 원하는 장비 조합 만들기', saveMode === 'server' ? '첫 기록 보상 도끼를 강화하고 성장 보상 보석을 개봉해 옵션을 장착해 보세요. 보석 합성·목재 뽑기는 서버 저장에서 아직 사용할 수 없어요.' : '보석은 개봉하거나 합성할 수 있어요. 옵션 장착은 소모형이며 기존 옵션을 덮으면 되돌릴 수 없어요.'],
   ] : [
     ['1 · Choose when to chop or collect', `Hold the tree to chop once every ${secondsPerHit} second${secondsPerHit === 1 ? '' : 's'}, then release and drag to collect wood. A quick tap does not attack. You cannot chop while collecting; dropped wood disappears after 5 seconds.`],
-    ['2 · Short sessions, lasting progress', saveMode === 'server' ? 'Rest when fatigue fills. Spend wood on trees and coins on the selected axe. Talents and gems are not connected to server saves yet.' : 'Rest when fatigue fills. Spend wood on trees, talents and gems; spend coins to upgrade the selected axe.'],
+    ['2 · Short sessions, lasting progress', saveMode === 'server' ? 'Rest when fatigue fills. Spend wood on trees and coins on the selected axe. Some quest gems can be opened on the server.' : 'Rest when fatigue fills. Spend wood on trees, talents and gems; spend coins to upgrade the selected axe.'],
     ['3 · Play first, connect later', saveMode === 'server' ? 'Sign with your wallet once to enter the server account. Collect 20 wood there to unlock the wallet quest. Hits do not require wallet approval.' : saveMode === 'practice' ? 'Sign in with your wallet to start a separate server save. Practice wood and levels are not uploaded.' : 'Collect 20 wood to unlock wallet connection. Follow quests to record growth on Devnet, then claim confirmed rewards. No wallet approval is needed for each hit.'],
-    ['4 · Build your loadout', saveMode === 'server' ? 'Equip and upgrade the First Record Axe. Gems and option changes are not available in server saves yet.' : 'Open gems or fuse them into higher tiers. Equipping an option consumes it and permanently replaces the previous option.'],
+    ['4 · Build your loadout', saveMode === 'server' ? 'Upgrade the First Record Axe, open the growth reward gem, and equip its option. Gem fusion and wood draws are not available in server saves yet.' : 'Open gems or fuse them into higher tiers. Equipping an option consumes it and permanently replaces the previous option.'],
   ];
   return <View style={s.root}>
     <Text style={s.title}>{ko ? '플레이 가이드' : 'How to play'}</Text>
@@ -30,7 +30,7 @@ export function PlayGuide({ progress, saveMode, onQuests, onGems }: { progress: 
           : (ko ? '현재 진행은 기기에 저장돼요. Devnet 기록은 플레이 전체의 검증이나 NFT 발행이 아니에요. 실제 구매·서버 랭킹·에어드랍은 아직 제공하지 않아요.' : 'Progress is stored on this device. A Devnet record is not proof of all gameplay or an NFT mint. Live purchases, server rankings and airdrops are not available yet.')}</Text>
     </View>
     <Pressable accessibilityRole="button" style={s.button} onPress={onQuests}><Text style={s.title}>{ko ? '퀘스트로 이어하기' : 'Continue with quests'}</Text></Pressable>
-    {saveMode !== 'server' && <Pressable accessibilityRole="button" style={s.button} onPress={onGems}><Text style={s.title}>{ko ? '보석 인벤토리 열기' : 'Open gem inventory'}</Text></Pressable>}
+    <Pressable accessibilityRole="button" style={s.button} onPress={onGems}><Text style={s.title}>{ko ? '보석 인벤토리 열기' : 'Open gem inventory'}</Text></Pressable>
   </View>;
 }
 const s = StyleSheet.create({ root: { gap: 12 }, card: { padding: 14, gap: 8, borderRadius: 14, backgroundColor: '#183D3D' }, title: { color: '#E6EFDD', fontWeight: '800', fontSize: 15 }, text: { color: '#B9D5CC', lineHeight: 21, fontSize: 13 }, button: { padding: 14, minHeight: 48, borderRadius: 12, backgroundColor: '#29524C' } });

@@ -10,7 +10,7 @@ import { pendingServerRecord, savePendingServerRecord } from '../solana/pending-
 import { recoverServerRecord, recordRecoveryNotice } from '../solana/server-record-recovery';
 import { recordErrorKey } from '../solana/record-errors';
 import { translate } from '../i18n';
-import { firstRecordBonusActive } from './progression';
+import { firstRecordBonusActive, optionInfo } from './progression';
 import { deployment } from '../deployment';
 import { createLiveInputQueue } from './live-input-queue';
 import { canLeaveServer, canQueueServerHit } from './server-input-policy';
@@ -203,6 +203,14 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         setNotice(translate(language, 'walletCoinGranted'));
       if (sentType === 'claimFirstRecord' && response.progress.firstRecordClaimed)
         setNotice(translate(language, 'firstRecordRewardReceived'));
+      if (sentType === 'claimGrowthReward' && response.progress.growthRewardClaimed)
+        setNotice(`${translate(language, 'rewardClaimed')} · ${translate(language, 'gemReceived')}`);
+      if (sentType === 'openGem' && response.progress.inventory.length > 0) {
+        const item = response.progress.inventory.at(-1)!;
+        const option = optionInfo(item);
+        setNotice(`${translate(language, 'gemResult')} · ${translate(language, option.kind)} +${option.value}${option.kind === 'damage' ? '' : '%p'}`);
+      }
+      if (sentType === 'equipOption') setNotice(translate(language, 'skinEquipped'));
       if (sentType === 'equipAxe' && !hadFirstRecordPower && firstRecordBonusActive(response.progress))
         setNotice(translate(language, 'firstRecordBonusUnlocked'));
       // Response already contains authoritative state. Re-read only on an explicit refresh/conflict.
@@ -238,9 +246,10 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   };
   const enqueue = (command: GameCommand): boolean => {
     if (!foreground.current || !token.current || (lock.current && !sessionCache.pending) || (sessionCache.pending && !lock.current)) return false;
-    if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet') {
+    if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward') {
       if (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type)) return false;
       if (command.type === 'claimFirstRecord' && sessionCache.state?.progress.firstRecordClaimed) return false;
+      if (command.type === 'claimGrowthReward' && sessionCache.state?.progress.growthRewardClaimed) return false;
       if (command.type === 'acknowledgeWallet' && sessionCache.state?.walletCoinRewardClaimed) return false;
     }
     if (command.type === 'collectDrop' && sessionCache.pending?.command.type === 'collectDrop' && sessionCache.pending.command.dropId === command.dropId) return true;

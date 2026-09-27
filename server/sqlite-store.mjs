@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
-import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, claimFirstRecord, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
+import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 
 
@@ -70,7 +70,8 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     execute(accountId, input) {
       id(accountId);
       const r = parseRequest(input);
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' ? r.command.tier : r.command.type === 'collectDrop' ? r.command.dropId : r.command.type === 'hitBatch' ? r.command.count : null]);
+      // Keep the original fingerprint for already-persisted command receipts.
+      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' ? r.command.dropId : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -83,7 +84,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         const before = load(accountId);
         const time = now(), c = r.command;
         let after;
-        if (['acknowledgeWallet', 'claimFirstRecord'].includes(c.type)) {
+        if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
@@ -94,7 +95,10 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
             if (!Number.isSafeInteger(coins)) throw new Error('RESOURCE_OVERFLOW');
             next = { ...before.progress, walletCompleted: true, coins };
             db.prepare('INSERT INTO wallet_coin_grants VALUES (?, ?)').run(accountId, time);
-          } else next = claimFirstRecord(before.progress);
+          } else if (c.type === 'claimFirstRecord') next = claimFirstRecord(before.progress);
+          else if (c.type === 'claimGrowthReward') next = claimGrowthReward(before.progress);
+          else if (c.type === 'openGem') next = openGem(before.progress, c.tier, random)?.state;
+          else next = equip(before.progress, c.slot, c.item);
           if (next === before.progress) throw new Error('ACTION_UNAVAILABLE');
           after = { ...before, progress: next, revision: before.revision + 1,
             ...(c.type === 'acknowledgeWallet' ? { walletCoinRewardClaimed: true } : {}) };

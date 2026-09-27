@@ -645,8 +645,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
       {online && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') && <Text style={{ color: '#FFD18E', paddingVertical: 10 }}>
-        {language === 'ko' ? '서버 연결 적용 중: 첫 기록·첫 기록 보상·도끼 강화와 장착은 사용 가능해요. 이후 보상·보석·특성은 아직 연결 전이에요.' : 'Server integration in progress: First Record, its reward, axe upgrades and equipping are available. Later rewards, gems and talents are not connected yet.'}
+        {language === 'ko' ? '서버 저장: 첫 기록과 성장 보상·보석 개봉·옵션 장착을 사용할 수 있어요. 이후 보상·보석 합성/뽑기·특성은 아직 연결 전이에요.' : 'Server save: First Record, growth reward, gem opening and option equipping are available. Later rewards, gem fusion/draws and talents are not connected yet.'}
       </Text>}
+      {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') &&
+        <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
       {panel === 'menu' && <View style={styles.achievement}>
         {server?.controls}
         <Pressable accessibilityRole="button" onPress={() => setPanel('guide')} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '플레이 가이드' : 'How to play'}</Text></Pressable>
@@ -709,7 +711,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             </Pressable>}
             {index === 8 && <Text style={styles.progressLabel}>{skinQuestCollected(progress)} / 100 · {t('harvestMoreHint')}</Text>}
             {index === 9 && <Text style={styles.progressLabel}>{t('tree')} {Math.min(progress.treeLevel, 10)}/10 · {t('character')} {Math.min(level, 5)}/5 · {t('axe')} {Math.min(highestAxeLevel(progress), 15)}/15</Text>}
-            {index === 10 && quests[index] === 'active' && <Pressable accessibilityRole="button" disabled={loaded.error} style={styles.languageButton} onPress={() => {
+            {index === 10 && quests[index] === 'active' && <Pressable accessibilityRole="button" disabled={loaded.error || (online && (server!.busy || server!.pending || server!.queued > 0))} style={styles.languageButton} onPress={() => {
+              if (online) { server!.command({ type: 'claimGrowthReward' }); return; }
               const next = claimGrowthReward(progressRef.current);
               if (next !== progressRef.current && commit(next)) Alert.alert(t('rewardClaimed'), t('gemReceived'));
             }}><Text style={styles.walletText}>{t('claimReward')}</Text></Pressable>}
@@ -739,6 +742,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       </View>
       </View>}
       {(panel === 'character' || panel === 'axe' || panel === 'gems') && <CharacterPanel key={panel} initialPage={panel === 'gems' ? 'gems' : panel === 'axe' ? 'axe' : 'overview'} progress={progress} commit={commit} onSkin={handleSkin}
+        serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)}
         onUpgrade={() => handleUpgrade('axe')} onNavigate={() => panelScroll.current?.scrollTo({ y: 0, animated: false })} />}
       {panel === 'tree' && <View style={styles.achievement}>
         {progress.treeLevel === TREE_MAX && treeHp === 0 && <Text style={styles.statValue}>{t('ending')}</Text>}

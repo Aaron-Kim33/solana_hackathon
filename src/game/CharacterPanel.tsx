@@ -13,13 +13,15 @@ import { TALENT_IDS, TALENT_MAX, talentCost, talentValue, upgradeTalent } from '
 import { formatNumber, formatSignedNumber } from './format-number';
 import { wardenOwned, recoveryOwned, MASTERY_VALUES } from './progression';
 import { WOOD_GEM_COST, WOOD_GEM_ODDS, drawWoodGem } from './progression';
+import type { GameCommand } from '../shared/server-contract';
 
 type Props = { progress: Progress; commit: (next: Progress) => boolean;
   initialPage?: 'overview' | 'axe' | 'gems';
-  onSkin: (skin: Progress['axeSkin']) => void; onUpgrade: () => void; onNavigate: () => void };
+  onSkin: (skin: Progress['axeSkin']) => void; onUpgrade: () => void; onNavigate: () => void;
+  serverCommand?: (command: GameCommand) => boolean; serverLocked?: boolean };
 type Page = 'overview' | 'axe' | 'wardrobe' | 'options' | 'skills' | 'gems' | 'talents';
 
-export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate, initialPage = 'overview' }: Props) {
+export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate, serverCommand, serverLocked = false, initialPage = 'overview' }: Props) {
   const [page, setPage] = useState<Page>(initialPage);
   const [slot, setSlot] = useState<0 | 1>(0);
   const [selected, setSelected] = useState<Progress['axeSkin']>(progress.axeSkin);
@@ -35,6 +37,10 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
     return `${t(info.tier ?? 'legacyOption')} · ${t(info.kind)} +${info.value}${info.kind === 'damage' ? '' : '%p'}`;
   };
   const useGem = (tier: GemTier) => {
+    if (serverCommand) {
+      if (serverCommand({ type: 'openGem', tier })) { setSlot(0); go('options'); }
+      return;
+    }
     const result = openGem(latest.current, tier);
     if (!result) return;
     if (!commit(result.state)) { Alert.alert(t('gems'), t('saveError')); return; }
@@ -174,7 +180,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       {[...new Set(progress.inventory)].map(id => {
         const count = progress.inventory.filter(item => item === id).length;
         const questBlocked = !progress.gemSlotQuestDone && progress.rewardOption === id && slot === 1;
-        const blocked = count < 1 || progress.slots[slot] === id || questBlocked;
+        const blocked = count < 1 || progress.slots[slot] === id || questBlocked || serverLocked;
         const next = combatStats(equip(progress, slot, id));
         return <Pressable key={id} accessibilityRole="button" disabled={blocked} onPress={() => {
           const snapshot = latest.current;
@@ -182,6 +188,10 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
             { text: t('cancel'), style: 'cancel' },
             { text: t('equipSkin'), onPress: () => {
               if (latest.current !== snapshot) return;
+              if (serverCommand) {
+                if (serverCommand({ type: 'equipOption', slot, item: id })) go('axe');
+                return;
+              }
               const updated = equip(latest.current, slot, id);
               if (updated === latest.current) return;
               if (commit(updated)) { latest.current = updated; go('axe'); }
@@ -198,7 +208,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
           <Text style={s.text}>{t(questBlocked ? 'qEquipGem' : progress.slots[slot] === id ? 'skinEquipped' : 'equipSkin')}</Text>
         </Pressable>;
       })}
-      {__DEV__ && (Object.keys(OPTION_ITEMS) as Array<keyof typeof OPTION_ITEMS>).some(id => progress.inventory.filter(item => item === id).length < 2) && button(t('testOptions'), () => commit(grantTestOptions(progress)))}
+      {__DEV__ && !serverCommand && (Object.keys(OPTION_ITEMS) as Array<keyof typeof OPTION_ITEMS>).some(id => progress.inventory.filter(item => item === id).length < 2) && button(t('testOptions'), () => commit(grantTestOptions(progress)))}
       {button(t('gems'), () => go('gems'))}
     </>}
 
@@ -217,8 +227,10 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
         <View style={s.heading}><GemArt tier={selectedGem} /><View style={s.grow}><Text style={[s.title, { color: GEM_COLORS[selectedGem] }]}>{t(selectedGem)}</Text><Text style={s.bonus}>×{progress.gems[selectedGem].toLocaleString()}</Text></View></View>
         <Text style={s.muted}>{t('damage')} +{GEM_VALUES[selectedGem].damage} · {t('critChance')} +{GEM_VALUES[selectedGem].critChance}%p · {t('critDamage')} +{GEM_VALUES[selectedGem].critDamage}%p</Text>
         <Text style={s.text}>{t('gemHint')}</Text>
-        {button(t('openGem'), () => useGem(selectedGem), progress.gems[selectedGem] < 1)}
+        {button(t('openGem'), () => useGem(selectedGem), progress.gems[selectedGem] < 1 || serverLocked)}
       </View>
+      {serverCommand && <Text style={s.muted}>{progress.language === 'ko' ? '서버 저장에서는 보상 보석의 개봉과 옵션 장착만 사용할 수 있어요. 합성·목재 뽑기는 아직 준비 중이에요.' : 'Server saves currently support opening earned gems and equipping options. Fusion and wood draws are not available yet.'}</Text>}
+      {!serverCommand && <>
       <View style={s.card}>
         <Text style={s.title}>{t('gemFusion')}</Text>
         <Text style={s.muted}>{t('fusionSelect')}</Text>
@@ -276,6 +288,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
         const next = grantTestGems(latest.current);
         if (commit(next)) latest.current = next;
       })}
+      </>}
     </>}
 
     {page === 'talents' && <>
