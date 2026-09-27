@@ -14,6 +14,20 @@ function fixture(t) {
   t.after(() => { store.close(); rmSync(folder, { recursive: true, force: true }); });
   return { store, path, advance: ms => { clock += ms; }, command: (type, extra = {}, player = 'alice') => ({ requestId: `command_${++seq}`, expectedRevision: store.load(player).revision, command: { type, ...extra } }) };
 }
+test('existing version-four play data gains a hit clock without losing saved drops', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumber-migrate-')), path = join(folder, 'test.sqlite');
+  const old = new DatabaseSync(path);
+  old.exec('CREATE TABLE play_state (player_id TEXT PRIMARY KEY, last_action INTEGER NOT NULL, collect_until INTEGER NOT NULL, drops TEXT NOT NULL) STRICT; PRAGMA user_version = 4;');
+  old.prepare('INSERT INTO play_state VALUES (?,?,?,?)').run('alice', 123, 456, '[]');
+  old.close();
+  const store = openGameStore(path);
+  t.after(() => { store.close(); rmSync(folder, { recursive: true, force: true }); });
+  const migrated = new DatabaseSync(path);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.deepEqual({ ...migrated.prepare('SELECT last_action, collect_until, drops, last_hit FROM play_state WHERE player_id=?').get('alice') },
+    { last_action: 123, collect_until: 456, drops: '[]', last_hit: 0 });
+  migrated.close();
+});
 test('server hit produces expiring wood, idempotent collection and fatigue', t => {
   const f = fixture(t), r = f.command('hit'), first = f.store.execute('alice', r);
   assert.equal(first.lastDamage, 3); assert.equal(first.progress.fatigue, 1); assert.equal(first.progress.wood, 0);
@@ -31,7 +45,7 @@ test('server hit produces expiring wood, idempotent collection and fatigue', t =
   f.advance(100); assert.throws(() => f.store.execute('alice', f.command('collectDrop', { dropId: first.drops[0].id })), /DROP_UNAVAILABLE/);
 });
 
-test('queued hits and collection obey server timing and return every confirmed hit', t => {
+test('queued collection stays responsive while hits obey the two-second server cadence', t => {
   const f = fixture(t), q = createLiveInputQueue();
   let now = 100000;
   q.push({ type: 'hit' }, now);
@@ -44,18 +58,14 @@ test('queued hits and collection obey server timing and return every confirmed h
     return result;
   };
   const first = send(0);
-  for (let i = 0; i < 4; i++) q.push({ type: 'hit' }, now);
   q.push({ type: 'collectDrop', dropId: first.drops[0].id }, now);
-  q.push({ type: 'hit' }, now);
-  now += 600; f.advance(600);
-  const batch = send(100150);
-  assert.deepEqual(batch.hitEvents.map(e => e.hit), [2, 3, 4, 5]);
-  assert.equal(batch.hitEvents.every(e => e.damage === 3 && e.critical === false), true);
   now += 150; f.advance(150);
   assert.equal(send(now).progress.wood, 2);
+  q.push({ type: 'hit' }, now);
   assert.equal(q.take(now, now + 250).wait, 250);
-  now += 250; f.advance(250);
-  assert.equal(send(now).progress.totalHits, 6);
+  now += 1850; f.advance(1850);
+  assert.deepEqual(send(now).hitEvents.map(e => e.hit), [2]);
+  assert.throws(() => f.store.execute('alice', f.command('hit')), /ACTION_TOO_FAST/);
   assert.equal(q.size, 0);
 });
 test('another account and exact-expiry collection fail; client rewards rejected', t => {

@@ -56,6 +56,8 @@ type DamagePopup = {
 };
 
 const LOG_LIFETIME_MS = 5000;
+const HOLD_TO_CHOP_MS = 280;
+const BASE_ATTACK_INTERVAL_MS = 2000; // 0.5 hits/second; later speed bonuses must also be server-validated.
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -164,17 +166,24 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const nextEffectId = useRef(1);
   const activeLogs = useRef(new Map<number, Log>());
   const draggingLogs = useRef(new Set<number>());
+  const holdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const holdingTree = useRef(false);
+  const stopHoldingTree = useCallback(() => {
+    holdingTree.current = false;
+    if (holdTimer.current) clearInterval(holdTimer.current);
+    holdTimer.current = null;
+  }, []);
   const seenServerHits = useRef(server?.snapshot?.progress.totalHits ?? 0);
   const damageTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const timer of damageTimers.current) clearTimeout(timer); }, []);
   const lastRecoveryCheck = useRef(0);
 
   const syncDragMode = useCallback((id: number, dragging: boolean) => {
-    if (dragging) draggingLogs.current.add(id);
+    if (dragging) { stopHoldingTree(); draggingLogs.current.add(id); }
     else draggingLogs.current.delete(id);
     setMode(draggingLogs.current.size > 0 ? 'collect' : 'chop');
     serverRef.current?.dragging(draggingLogs.current.size > 0);
-  }, []);
+  }, [stopHoldingTree]);
 
   useEffect(() => {
     if (!server?.snapshot) return;
@@ -237,9 +246,25 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       if (next !== progressRef.current) commit(next);
     };
     const timer = setInterval(update, 1000);
-    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') update(); });
+    const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') update(); else stopHoldingTree(); });
     return () => { clearInterval(timer); subscription.remove(); };
-  }, [commit]);
+  }, [commit, stopHoldingTree]);
+
+  const swing = useRef(new Animated.Value(0)).current;
+  const playChopMotion = useCallback(() => {
+    swing.stopAnimation(); swing.setValue(0);
+    Animated.sequence([
+      Animated.timing(swing, { toValue: 0.5, duration: 110, useNativeDriver: true }),
+      Animated.timing(swing, { toValue: 1, duration: 100, useNativeDriver: true }),
+      Animated.spring(swing, { toValue: 0, speed: 18, bounciness: 3, useNativeDriver: true }),
+    ]).start();
+    shake.stopAnimation(); shake.setValue(0);
+    Animated.sequence([
+      Animated.timing(shake, { toValue: 7, duration: 45, useNativeDriver: true }),
+      Animated.timing(shake, { toValue: -5, duration: 55, useNativeDriver: true }),
+      Animated.spring(shake, { toValue: 0, speed: 28, bounciness: 8, useNativeDriver: true }),
+    ]).start();
+  }, [shake, swing]);
 
   const chop = useCallback(() => {
     if (panel || progressRef.current.treeHp === 0) return;
@@ -250,8 +275,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const connection = serverRef.current;
     if (connection?.snapshot) {
       if (progressRef.current.fatigue >= 100 || !connection.hit()) return;
-      shake.stopAnimation(); shake.setValue(5);
-      Animated.spring(shake, { toValue: 0, speed: 28, bounciness: 8, useNativeDriver: true }).start();
+      playChopMotion();
       return;
     }
     const now = Date.now();
@@ -264,13 +288,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const leveledUp = characterLevel(result.state.xp) > characterLevel(progressRef.current.xp);
     if (!commit(result.state)) return;
     const damage = result.damage;
-    shake.stopAnimation();
-    shake.setValue(0);
-    Animated.sequence([
-      Animated.timing(shake, { toValue: 7, duration: 45, useNativeDriver: true }),
-      Animated.timing(shake, { toValue: -5, duration: 55, useNativeDriver: true }),
-      Animated.spring(shake, { toValue: 0, speed: 28, bounciness: 8, useNativeDriver: true }),
-    ]).start();
+    playChopMotion();
     const effectId = nextEffectId.current++;
     const droppedLog: Log = {
       id: nextLogId.current++,
@@ -306,7 +324,22 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const lang = result.state.language;
       Alert.alert(translate(lang, 'bossDefeated'), translate(lang, result.bossDefeated === 'first' ? 'bossFirstReward' : 'bossGateReward'));
     }
-  }, [commit, shake, panel]);
+  }, [commit, panel, playChopMotion]);
+
+  const chopRef = useRef(chop);
+  chopRef.current = chop;
+  const startHoldingTree = () => {
+    if (holdingTree.current || panel || progressRef.current.treeHp <= 0 || progressRef.current.fatigue >= 100 || draggingLogs.current.size > 0) return;
+    holdingTree.current = true;
+    chopRef.current();
+    holdTimer.current = setInterval(() => {
+      if (holdingTree.current) chopRef.current();
+    }, BASE_ATTACK_INTERVAL_MS);
+  };
+  useEffect(() => {
+    if (panel || mode === 'collect' || treeHp <= 0 || fatigue >= 100) stopHoldingTree();
+  }, [panel, mode, treeHp, fatigue, stopHoldingTree]);
+  useEffect(() => () => stopHoldingTree(), [stopHoldingTree]);
 
   const collectLog = useCallback((id: number) => {
     const target = activeLogs.current.get(id);
@@ -531,12 +564,26 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         <View style={styles.moon} />
         <View style={styles.hillBack} />
         <View style={styles.hillFront} />
+        {treeHp > 0 && <View pointerEvents="none" style={styles.forestCharacter}>
+          <View style={styles.forestCharacterLegLeft} /><View style={styles.forestCharacterLegRight} />
+          <View style={styles.forestCharacterBody} /><View style={styles.forestCharacterArm} />
+          <View style={styles.forestCharacterHead}><View style={styles.forestCharacterHat} /><View style={styles.forestCharacterEye} /></View>
+          <Animated.View style={[styles.forestCharacterAxe, { transform: [
+            { rotate: swing.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['-30deg', '-62deg', '42deg'] }) },
+            { scale: 0.62 },
+          ] }]}>
+            <AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} />
+          </Animated.View>
+        </View>}
         {treeHp > 0 ? <Animated.View style={[styles.treeButton, { transform: [{ translateX: shake }] }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('chop')}
+          accessibilityHint={t('tap')}
           disabled={mode === 'collect'}
-          onPress={chop}
+          delayLongPress={HOLD_TO_CHOP_MS}
+          onLongPress={startHoldingTree}
+          onPressOut={stopHoldingTree}
           style={({ pressed }) => [styles.treeTouch, pressed && styles.treePressed, mode === 'collect' && styles.treeDisabled]}
         >
           <View pointerEvents="none" style={styles.canopy}>
@@ -572,7 +619,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
 
       <View style={styles.messageBox}>
         {server && !online && <Text style={[styles.message, { color: '#FFD18E', fontWeight: '800' }]}>{t('localPracticeNotice')}</Text>}
-        <Text style={styles.message}>{online ? server!.notice || (server!.pending && !server!.busy ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.') : server!.busy || server!.queued ? (language === 'ko' ? '동기화 중…' : 'Syncing…') : (language === 'ko' ? '서버에 저장됨 · 탭하여 벌목, 드래그하여 회수' : 'Saved on server · Tap to chop, drag to collect')) : t(message.key, message.value)}</Text>
+        <Text style={styles.message}>{online ? server!.notice || (server!.pending && !server!.busy ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.') : server!.busy || server!.queued ? (language === 'ko' ? '동기화 중…' : 'Syncing…') : (language === 'ko' ? '서버에 저장됨 · 길게 눌러 벌목, 드래그하여 회수' : 'Saved on server · Hold to chop, drag to collect')) : t(message.key, message.value)}</Text>
       </View>
 
       <View style={styles.actions}>
@@ -822,6 +869,15 @@ const styles = StyleSheet.create({
   axeRune: { position: 'absolute', top: 8, left: 12, width: 9, height: 13, borderRadius: 2, backgroundColor: '#C1FFEF', transform: [{ rotate: '30deg' }] },
   axeBand: { position: 'absolute', top: 48, width: 10, height: 12, backgroundColor: '#14F195' },
   forestAxe: { position: 'absolute', top: 12, left: 10, zIndex: 3, transform: [{ scale: 0.7 }] },
+  forestCharacter: { position: 'absolute', left: '13%', bottom: '20%', width: 92, height: 112, zIndex: 5 },
+  forestCharacterHead: { position: 'absolute', left: 19, top: 16, width: 34, height: 33, borderRadius: 15, backgroundColor: '#EBC292', zIndex: 2 },
+  forestCharacterHat: { position: 'absolute', top: -8, left: -5, width: 44, height: 17, borderRadius: 8, backgroundColor: '#C87348' },
+  forestCharacterEye: { position: 'absolute', right: 5, top: 15, width: 4, height: 4, borderRadius: 2, backgroundColor: '#203637' },
+  forestCharacterBody: { position: 'absolute', left: 18, top: 49, width: 43, height: 42, borderRadius: 12, backgroundColor: '#729D7C', borderBottomWidth: 7, borderBottomColor: '#EFC75E' },
+  forestCharacterArm: { position: 'absolute', left: 54, top: 55, width: 24, height: 11, borderRadius: 6, backgroundColor: '#EBC292', transform: [{ rotate: '-20deg' }] },
+  forestCharacterLegLeft: { position: 'absolute', left: 22, bottom: 0, width: 15, height: 27, borderRadius: 5, backgroundColor: '#28403F' },
+  forestCharacterLegRight: { position: 'absolute', left: 45, bottom: 0, width: 15, height: 27, borderRadius: 5, backgroundColor: '#28403F' },
+  forestCharacterAxe: { position: 'absolute', left: 48, top: -5, width: 60, height: 95, zIndex: 3 },
   forestGem: { position: 'absolute', top: 104, left: 16, zIndex: 4, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   autoPickupButton: { position: 'absolute', bottom: 42, left: 8, zIndex: 4, minHeight: 44,
     paddingHorizontal: 8, paddingVertical: 4, gap: 2, borderRadius: 10, backgroundColor: '#214743', borderWidth: 1, borderColor: '#91D3B1', alignItems: 'center', justifyContent: 'center' },

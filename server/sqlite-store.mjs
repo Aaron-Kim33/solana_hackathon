@@ -3,6 +3,8 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, claimFirstRecord, walletUnlocked, questSteps } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 
+const ATTACK_INTERVAL_MS = 2000;
+
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
 // accountId must be resolved by a future authenticated session, never trusted from an HTTP body.
 export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 ** 32, now = Date.now } = {}) {
@@ -10,7 +12,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 4) throw new Error('DATABASE_VERSION_UNSUPPORTED');
+    if (version > 5) throw new Error('DATABASE_VERSION_UNSUPPORTED');
     db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS players (
@@ -40,7 +42,8 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       CREATE TABLE IF NOT EXISTS wallet_coin_grants (
         player_id TEXT PRIMARY KEY REFERENCES players(id), granted_at INTEGER NOT NULL
       ) STRICT;
-      PRAGMA user_version = 4;
+      ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
+      PRAGMA user_version = 5;
       COMMIT;
     `);
   } catch (error) { db.close(); throw error; }
@@ -103,17 +106,19 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           if (play && (time < play.last_action + 150 || time < play.collect_until)) throw new Error('ACTION_TOO_FAST');
           let drops = [...before.drops], next = recover(before.progress, time), lastDamage;
           const hitEvents = [];
+          let lastHit = play?.last_hit ?? 0;
           if (c.type === 'hit' || c.type === 'hitBatch') {
             const count = c.type === 'hitBatch' ? c.count : 1;
             // Server-owned time budget: no client timestamps or unlimited offline accumulation.
-            const start = time - (count - 1) * 150;
+            const start = time - (count - 1) * ATTACK_INTERVAL_MS;
             if (play && (start < play.last_action + 150 || start < play.collect_until)) throw new Error('ACTION_TOO_FAST');
+            if (play && start < play.last_hit + ATTACK_INTERVAL_MS) throw new Error('ACTION_TOO_FAST');
             next = before.progress;
             for (let index = 0; index < count; index++) {
-              const at = start + index * 150;
+              const at = start + index * ATTACK_INTERVAL_MS;
               const result = hit(next, at, random, false);
               if (!result) { if (index === 0) throw new Error('ACTION_UNAVAILABLE'); break; }
-              next = result.state; lastDamage = result.damage;
+              next = result.state; lastDamage = result.damage; lastHit = at;
               hitEvents.push({ hit: next.totalHits, damage: result.damage, critical: result.critical });
               if (result.manualWood > 0) drops.push({ id: randomUUID(), value: result.manualWood, expiresAt: at + 5000 });
             }
@@ -127,8 +132,8 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
             next = updated;
           }
           after = { ...before, progress: next, revision: before.revision + 1, drops, serverTime: time, ...(lastDamage === undefined ? {} : { lastDamage, hitEvents }) };
-          db.prepare('INSERT INTO play_state VALUES (?,?,?,?) ON CONFLICT(player_id) DO UPDATE SET last_action=excluded.last_action,collect_until=excluded.collect_until,drops=excluded.drops')
-            .run(accountId, time, c.type === 'collectDrop' ? time + 250 : 0, JSON.stringify(drops));
+          db.prepare('INSERT INTO play_state (player_id,last_action,collect_until,drops,last_hit) VALUES (?,?,?,?,?) ON CONFLICT(player_id) DO UPDATE SET last_action=excluded.last_action,collect_until=excluded.collect_until,drops=excluded.drops,last_hit=excluded.last_hit')
+            .run(accountId, time, c.type === 'collectDrop' ? time + 250 : 0, JSON.stringify(drops), lastHit);
         } else after = createMemoryGameService(before, random).execute(r);
         // Validate the result before making all three writes visible atomically.
         parseProgress(JSON.stringify(after.progress));

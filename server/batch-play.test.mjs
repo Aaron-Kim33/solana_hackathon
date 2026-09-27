@@ -15,7 +15,7 @@ test('100-hit comparison: fewer committed receipts with equivalent results', () 
       try {
         store.createPlayer('player'); const start = performance.now();
         for (let n = 0; n < 100 / count; n++) {
-          time += count * 150;
+          time += count * 2000;
           const r = { requestId: `request_${n}`, expectedRevision: n, command: count === 1 ? { type: 'hit' } : { type: 'hitBatch', count } };
           const result = store.execute('player', r); bytes += Buffer.byteLength(JSON.stringify(result));
           if (count === 4) assert.deepEqual(store.execute('player', r), result);
@@ -40,7 +40,9 @@ test('batch count, time budget and retry identity cannot inflate rewards', () =>
     assert.throws(() => store.execute('player', { ...r, command: { type: 'hitBatch', count: 3 } }), /REQUEST_ID_REUSED/);
     time += 150;
     assert.throws(() => store.execute('player', { ...r, requestId: 'batch_002', expectedRevision: 1 }), /ACTION_TOO_FAST/);
+    time += 1850;
+    assert.equal(store.execute('player', { requestId: 'single_002', expectedRevision: 1, command: { type: 'hit' } }).progress.totalHits, 5);
     for (const count of [0, 5, -1, 1.5]) assert.throws(() => store.execute('player', { ...r, command: { type: 'hitBatch', count } }), /INVALID_COMMAND/);
-    assert.equal(store.load('player').progress.totalHits, 4);
+    assert.equal(store.load('player').progress.totalHits, 5);
   } finally { store.close(); }
 });
