@@ -1,9 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
-import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, claimFirstRecord, walletUnlocked, questSteps } from '../src/game/progression.ts';
+import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, claimFirstRecord, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 
-const ATTACK_INTERVAL_MS = 2000;
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
 // accountId must be resolved by a future authenticated session, never trusted from an HTTP body.
@@ -108,14 +107,15 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           const hitEvents = [];
           let lastHit = play?.last_hit ?? 0;
           if (c.type === 'hit' || c.type === 'hitBatch') {
+            const attackInterval = attackIntervalMs(before.progress);
             const count = c.type === 'hitBatch' ? c.count : 1;
             // Server-owned time budget: no client timestamps or unlimited offline accumulation.
-            const start = time - (count - 1) * ATTACK_INTERVAL_MS;
+            const start = time - (count - 1) * attackInterval;
             if (play && (start < play.last_action + 150 || start < play.collect_until)) throw new Error('ACTION_TOO_FAST');
-            if (play && start < play.last_hit + ATTACK_INTERVAL_MS) throw new Error('ACTION_TOO_FAST');
+            if (play && start < play.last_hit + attackInterval) throw new Error('ACTION_TOO_FAST');
             next = before.progress;
             for (let index = 0; index < count; index++) {
-              const at = start + index * ATTACK_INTERVAL_MS;
+              const at = start + index * attackInterval;
               const result = hit(next, at, random, false);
               if (!result) { if (index === 0) throw new Error('ACTION_UNAVAILABLE'); break; }
               next = result.state; lastDamage = result.damage; lastHit = at;

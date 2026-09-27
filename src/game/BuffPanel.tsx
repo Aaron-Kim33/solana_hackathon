@@ -19,7 +19,7 @@ export function BuffPanel({ progress }: { progress: Progress }) {
   if (progress.axeSkin === 'firstRecord') add(`${t('buffAxe')} · ${t('firstRecordSkinShort')}`, `${t('attackPower')} +2`);
   if (progress.axeSkin === 'pioneer') add(`${t('buffAxe')} · ${t('pioneerAxe')}`, t('masteryXp', 10));
   if (progress.axeSkin === 'recovery') add(`${t('buffAxe')} · ${t('recoveryAxe')}`, t('buffChance', 30));
-  if (firstRecordBonusActive(progress)) add(t('buffPermanent'), `${t('attackPower')} +1`);
+  if (firstRecordBonusActive(progress)) add(t('buffPermanent'), `${t('attackPower')} +1 · ${t('attackSpeedBonus')}`);
   const masteryEffects = { default: 'masteryDamage', firstRecord: 'masteryXp', pioneer: 'masteryCoins', warden: 'masteryCrit' } as const;
   for (const axe of Object.keys(masteryEffects) as MasteryAxe[]) {
     const value = masteryBonus(progress, axe);

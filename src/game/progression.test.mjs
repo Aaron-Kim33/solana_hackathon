@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { initialProgress, RECOVERY_MS, recover, hit, collect, upgrade, regrow, testRest, characterLevel, walletUnlocked, questSteps, parseProgress,
   AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeCost, treeAppearance, xpFloor, equip, grantTestOptions } from './progression.ts';
 import { ko, en } from '../i18n.ts';
-import { claimFirstRecord, equipAxeSkin, skinQuestCollected, firstRecordBonusActive } from './progression.ts';
+import { claimFirstRecord, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs } from './progression.ts';
 import { awardXp, xpRequired } from './progression.ts';
 const normal = () => 0.5;
 const rolls = (...values) => () => values.shift() ?? 0.99;
@@ -321,18 +321,22 @@ test('record reward requires confirmation and completed prerequisites; claim doe
   assert.deepEqual(questSteps(claimed).slice(6, 9), ['complete', 'active', 'locked']);
 });
 
-test('first equip unlocks +1 once without consuming gear and retains it on skin changes and upgrades', () => {
+test('first equip unlocks permanent +1 attack and +0.5 hits/s once across axe changes and saves', () => {
   const locked = recordedState();
+  assert.equal(attackIntervalMs(locked), 2000);
   assert.equal(equipAxeSkin(locked, 'firstRecord'), locked);
   const claimed = claimFirstRecord(equip(grantTestOptions(locked), 0, 'damage'));
+  assert.equal(attackIntervalMs(claimed), 2000);
   const equipped = equipAxeSkin(claimed, 'firstRecord');
   assert.equal(firstRecordBonusActive(equipped), true);
+  assert.equal(attackIntervalMs(equipped), 1000);
   assert.equal(equipped.axeLevel, 1);
   assert.equal(combatStats(equipped).min, combatStats(claimed).min + 2);
   assert.deepEqual(equipped.slots, claimed.slots);
   assert.deepEqual(equipped.inventory, claimed.inventory);
   assert.equal(equipAxeSkin(equipped, 'firstRecord'), equipped);
   const unequipped = equipAxeSkin(equipped, 'default');
+  assert.equal(attackIntervalMs(unequipped), 1000);
   assert.equal(unequipped.axeLevel, 2);
   assert.equal(combatStats(unequipped).min, combatStats(equipped).min - 1);
   assert.equal(combatStats(unequipped).min, combatStats(claimed).min + 1);
@@ -341,6 +345,7 @@ test('first equip unlocks +1 once without consuming gear and retains it on skin 
   const upgraded = upgrade(unequipped, 'axe');
   assert.equal(combatStats(upgraded).min, combatStats(unequipped).min + 1);
   assert.equal(firstRecordBonusActive(parseProgress(JSON.stringify(upgraded))), true);
+  assert.equal(attackIntervalMs(parseProgress(JSON.stringify(upgraded))), 1000);
 });
 
 test('new 100-wood quest starts at first equip, survives unequip/restart/spending, and caps at 100', () => {

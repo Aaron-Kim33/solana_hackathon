@@ -45,6 +45,24 @@ test('server hit produces expiring wood, idempotent collection and fatigue', t =
   f.advance(100); assert.throws(() => f.store.execute('alice', f.command('collectDrop', { dropId: first.drops[0].id })), /DROP_UNAVAILABLE/);
 });
 
+test('first-record permanent speed changes server cadence from two seconds to one', t => {
+  const f = fixture(t);
+  f.store.execute('alice', f.command('hit'));
+  f.advance(999);
+  assert.throws(() => f.store.execute('alice', f.command('hit')), /ACTION_TOO_FAST/);
+  const db = new DatabaseSync(f.path), progress = f.store.load('alice').progress;
+  db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify({ ...progress,
+    firstRecordClaimed: true, skinQuestHarvestStart: 0,
+    receipt: { address: 'test', signature: 'test', status: 'confirmed' } }), 'alice');
+  db.close();
+  f.advance(1);
+  assert.equal(f.store.execute('alice', f.command('hit')).progress.totalHits, 2);
+  f.advance(999);
+  assert.throws(() => f.store.execute('alice', f.command('hit')), /ACTION_TOO_FAST/);
+  f.advance(1);
+  assert.equal(f.store.execute('alice', f.command('hit')).progress.totalHits, 3);
+});
+
 test('queued collection stays responsive while hits obey the two-second server cadence', t => {
   const f = fixture(t), q = createLiveInputQueue();
   let now = 100000;

@@ -225,6 +225,7 @@ export function grantTestOptions(state: Progress): Progress {
   return { ...state, inventory };
 }
 export const firstRecordBonusActive = (state: Progress) => state.firstRecordClaimed && state.skinQuestHarvestStart != null;
+export const attackIntervalMs = (state: Progress) => firstRecordBonusActive(state) ? 1000 : 2000;
 export const skinQuestCollected = (state: Pick<Progress, 'harvested' | 'skinQuestHarvestStart'>) => state.skinQuestHarvestStart == null ? 0
   : Math.min(100, Math.max(0, state.harvested - state.skinQuestHarvestStart));
 export function claimFirstRecord(state: Progress): Progress {

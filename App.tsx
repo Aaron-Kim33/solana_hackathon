@@ -32,7 +32,7 @@ import { questView } from './src/game/quest-view';
 import { GameMessage, Language, translate, TranslationKey } from './src/i18n';
 import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, upgrade, testRest,
   combatStats, treeAppearance, equip, grantTestOptions, OPTION_ITEMS, OptionId,
-  claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive,
+  claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
   treeHealth, axeCost, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
@@ -57,7 +57,6 @@ type DamagePopup = {
 
 const LOG_LIFETIME_MS = 5000;
 const HOLD_TO_CHOP_MS = 280;
-const BASE_ATTACK_INTERVAL_MS = 2000; // 0.5 hits/second; later speed bonuses must also be server-validated.
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -334,7 +333,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     chopRef.current();
     holdTimer.current = setInterval(() => {
       if (holdingTree.current) chopRef.current();
-    }, BASE_ATTACK_INTERVAL_MS);
+    }, attackIntervalMs(progressRef.current));
   };
   useEffect(() => {
     if (panel || mode === 'collect' || treeHp <= 0 || fatigue >= 100) stopHoldingTree();
@@ -579,7 +578,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={t('chop')}
-          accessibilityHint={t('tap')}
+          accessibilityHint={t(firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}
           disabled={mode === 'collect'}
           delayLongPress={HOLD_TO_CHOP_MS}
           onLongPress={startHoldingTree}
@@ -600,7 +599,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <View style={styles.treeKnot} />
             <View style={styles.trunkLine} />
           </View>
-          <Text style={styles.hitHint}>{t(mode === 'chop' ? 'tap' : 'collecting')}</Text>
+          <Text style={styles.hitHint}>{t(mode === 'collect' ? 'collecting' : firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}</Text>
         </Pressable>
         </Animated.View> : <View style={styles.felledTree}>
           <View style={styles.stump}><View style={styles.stumpRing} /></View>
