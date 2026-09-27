@@ -10,6 +10,7 @@ import { pendingServerRecord, savePendingServerRecord } from '../solana/pending-
 import { recoverServerRecord, recordRecoveryNotice } from '../solana/server-record-recovery';
 import { recordErrorKey } from '../solana/record-errors';
 import { translate } from '../i18n';
+import { firstRecordBonusActive } from './progression';
 import { deployment } from '../deployment';
 import { createLiveInputQueue } from './live-input-queue';
 import { canLeaveServer, canQueueServerHit } from './server-input-policy';
@@ -172,6 +173,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       const sentType = sessionCache.pending.command.type;
       const beforeHarvested = sessionCache.state.progress.harvested;
       const beforeCoins = sessionCache.state.progress.coins;
+      const hadFirstRecordPower = firstRecordBonusActive(sessionCache.state.progress);
       let sentAt = 0;
       let response: PlayerSnapshot;
       for (let retry = 0; ; retry++) {
@@ -201,6 +203,8 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         setNotice(translate(language, 'walletCoinGranted'));
       if (sentType === 'claimFirstRecord' && response.progress.firstRecordClaimed)
         setNotice(translate(language, 'firstRecordRewardReceived'));
+      if (sentType === 'equipAxe' && !hadFirstRecordPower && firstRecordBonusActive(response.progress))
+        setNotice(translate(language, 'firstRecordBonusUnlocked'));
       // Response already contains authoritative state. Re-read only on an explicit refresh/conflict.
       if (retrying) updateState(await api('/me', undefined, token.current));
     } catch (error) {
