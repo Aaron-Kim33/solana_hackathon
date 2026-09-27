@@ -2,6 +2,7 @@
   "build": {
     "preview": {
       "environment": "preview",
+      "node": "24.14.0",
       "distribution": "internal",
       "android": { "buildType": "apk" },
       "env": {
@@ -11,6 +12,7 @@
     },
     "dapp-store": {
       "environment": "production",
+      "node": "24.14.0",
       "distribution": "store",
       "android": { "buildType": "apk" },
       "env": {
