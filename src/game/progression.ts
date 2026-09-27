@@ -96,7 +96,11 @@ export type Progress = {
   firstRecordClaimed: boolean; axeSkin: AxeId; skinQuestHarvestStart: number | null;
   gems: Record<GemTier, number>; growthRewardClaimed: boolean; rewardOption: OptionId | null; gemSlotQuestDone: boolean;
 };
-export const treeHealth = (level: number) => 200 + level * 100;
+const originalTreeHealth = (level: number) => 200 + level * 100;
+// The two-second attack cadence needs a short opening arc; level 25 rejoins the original curve.
+export const treeHealth = (level: number) => level <= 10 ? 25 + level * 15
+  : level < 25 ? Math.round(175 + (originalTreeHealth(25) - 175) * (level - 10) / 15)
+    : originalTreeHealth(level);
 export const BOSS_HEALTH = { first: 15000, gate: 60000 } as const;
 export function activeBoss(state: Pick<Progress, 'treeLevel' | 'bosses'>): 'first' | 'gate' | null {
   if (!state.bosses) return null; // Legacy progress is grandfathered during loading.
@@ -110,7 +114,9 @@ export function encounterHealth(state: Pick<Progress, 'treeLevel' | 'bosses'>) {
 }
 export const treeAppearance = (level: number) => Math.min(19, Math.floor((level - 1) / 50));
 export const axeCost = (level: number) => level * 20;
-export const treeCost = (level: number) => level * 30;
+export const treeCost = (level: number) => level <= 10 ? level * 10 + 5
+  : level < 25 ? Math.round(105 + (25 * 30 - 105) * (level - 10) / 15)
+    : level * 30;
 export const hitXp = (treeLevel: number) => treeLevel;
 export const newTreeXp = (treeLevel: number) => treeLevel * 10;
 export const treeCoins = (treeLevel: number) => treeLevel * 40;
@@ -381,6 +387,9 @@ export function parseProgress(raw: string): Progress {
     typeof state.autoPickupTrial !== 'object' || Array.isArray(state.autoPickupTrial) ||
     !Number.isSafeInteger(state.autoPickupTrial.startedAt) || state.autoPickupTrial.startedAt < 0 ||
     state.autoPickupTrial.startedAt > Number.MAX_SAFE_INTEGER - 1800000 || state.treeLevel < 50)) throw new Error('INVALID_SAVE');
+  // Older saves may hold more HP than the shortened opening trees. Preserve every
+  // level and resource, but cap only the remaining HP at the new encounter maximum.
+  state.treeHp = Math.min(state.treeHp, encounterHealth(state));
   if (oldVersion >= 9) return state;
   const inventory = [...state.inventory];
   for (const item of state.slots) {
@@ -398,7 +407,7 @@ function parseSavedProgress(raw: string): Progress {
     !integer(s.wood, 0) || !integer(s.harvested, s.wood) || !integer(s.xp, 0) ||
     !integer(s.axeLevel, 1, legacy ? 10 : AXE_MAX) || !integer(s.treeLevel, 1, legacy ? 5 : TREE_MAX) ||
     typeof s.treeHp !== 'number' || !Number.isFinite(s.treeHp) || s.treeHp < 0 ||
-    s.treeHp > (legacy ? 100 + (s.treeLevel - 1) * 70 : encounterHealth(s)) || !integer(s.fatigue, 0, 100) ||
+    s.treeHp > (legacy ? 100 + (s.treeLevel - 1) * 70 : activeBoss(s) ? encounterHealth(s) : originalTreeHealth(s.treeLevel)) || !integer(s.fatigue, 0, 100) ||
     (s.fatigue > 0 ? !integer(s.recoveryAt, 0) : s.recoveryAt !== null) ||
     typeof s.walletCompleted !== 'boolean' ||
     (s.receipt !== null && (!s.receipt || typeof s.receipt.address !== 'string' ||

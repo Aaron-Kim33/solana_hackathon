@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialProgress, hit, collect, upgrade, regrow, xpFloor, xpRequired, characterLevel,
-  parseProgress, treeHealth, treeCoins, hitXp, bonusCoins, COIN_CHANCE, questSteps } from './progression.ts';
+  parseProgress, treeHealth, treeCost, treeCoins, hitXp, bonusCoins, COIN_CHANCE, questSteps } from './progression.ts';
 const rolls = (...values) => () => values.shift() ?? 0.99;
 
 test('hit XP scales with tree level, not damage, criticals or collected wood', () => {
@@ -49,7 +49,7 @@ test('axes spend coins only, trees spend wood only and new tree XP cannot repeat
   assert.equal(axe.axeLevel, 2);
   assert.equal(upgrade(axe, 'axe'), axe);
   const tree = upgrade(state, 'tree');
-  assert.equal(tree.wood, 0);
+  assert.equal(tree.wood, 30 - treeCost(1));
   assert.equal(tree.coins, 20);
   assert.equal(tree.xp, 20);
   assert.equal(upgrade(tree, 'tree'), tree);

@@ -89,7 +89,7 @@ test('failed audit rolls back both drop creation and hit damage', t => {
   const f = fixture(t), db = new DatabaseSync(f.path);
   db.exec("CREATE TRIGGER fail_play BEFORE INSERT ON economy_events BEGIN SELECT RAISE(ABORT, 'FAIL_TEST'); END");
   assert.throws(() => f.store.execute('alice', f.command('hit')), /FAIL_TEST/);
-  assert.equal(f.store.load('alice').progress.treeHp, 300);
+  assert.equal(f.store.load('alice').progress.treeHp, 40);
   assert.equal(f.store.load('alice').drops.length, 0);
   assert.equal(db.prepare('SELECT count(*) AS n FROM play_state').get().n, 0); db.close();
 });

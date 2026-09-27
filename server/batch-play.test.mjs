@@ -4,7 +4,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { DatabaseSync } from 'node:sqlite';
 import { openGameStore } from './sqlite-store.mjs';
+import { treeHealth } from '../src/game/progression.ts';
 test('100-hit comparison: fewer committed receipts with equivalent results', () => {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-batch-'));
   try {
@@ -13,7 +15,12 @@ test('100-hit comparison: fewer committed receipts with equivalent results', () 
       let time = 100000, bytes = 0;
       const store = openGameStore(join(folder, `${count}.sqlite`), { random: () => 0.9, now: () => time });
       try {
-        store.createPlayer('player'); const start = performance.now();
+        store.createPlayer('player');
+        const db = new DatabaseSync(join(folder, `${count}.sqlite`));
+        const progress = store.load('player').progress;
+        db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify({ ...progress, treeLevel: 25, treeHp: treeHealth(25) }), 'player');
+        db.close();
+        const start = performance.now();
         for (let n = 0; n < 100 / count; n++) {
           time += count * 2000;
           const r = { requestId: `request_${n}`, expectedRevision: n, command: count === 1 ? { type: 'hit' } : { type: 'hitBatch', count } };

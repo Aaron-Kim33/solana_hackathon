@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialProgress, collect, claimFirstRecord, equipAxeSkin, questSteps, claimGrowthReward,
-  GEM_TIERS, GEM_VALUES, optionInfo, grantTestGems, openGem, equip, combatStats, parseProgress, upgrade } from './progression.ts';
+  GEM_TIERS, GEM_VALUES, optionInfo, grantTestGems, openGem, equip, combatStats, parseProgress, upgrade, treeHealth } from './progression.ts';
 
 function ready() {
-  const recorded = { ...collect(initialProgress('ko'), 5000), xp: 4000, coins: 1000, axeLevel: 15, treeLevel: 10, treeHp: 1200,
+  const recorded = { ...collect(initialProgress('ko'), 5000), xp: 4000, coins: 1000, axeLevel: 15, treeLevel: 10, treeHp: treeHealth(10),
     walletCompleted: true, receipt: { address: 'test', signature: 'test', status: 'confirmed' } };
   return collect(equipAxeSkin(claimFirstRecord(recorded), 'firstRecord'), 100);
 }

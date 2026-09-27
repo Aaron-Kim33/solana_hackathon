@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialProgress, collect, claimFirstRecord, equipAxeSkin, upgrade, axeLevelFor, highestAxeLevel,
-  combatStats, parseProgress, questSteps, claimGrowthReward } from './progression.ts';
+  combatStats, parseProgress, questSteps, claimGrowthReward, treeHealth } from './progression.ts';
 function owned() {
   return claimFirstRecord({ ...collect(initialProgress('ko'), 1000), coins: 100000, xp: 4000,
-    axeLevel: 15, treeLevel: 10, treeHp: 1200, walletCompleted: true,
+    axeLevel: 15, treeLevel: 10, treeHp: treeHealth(10), walletCompleted: true,
     receipt: { address: 'test', signature: 'test', status: 'confirmed' } });
 }
 test('new axes start at level one; upgrading each axe changes only that axe', () => {

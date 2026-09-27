@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialProgress, RECOVERY_MS, recover, hit, collect, upgrade, regrow, testRest, characterLevel, walletUnlocked, questSteps, parseProgress,
-  AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeAppearance, xpFloor, equip, grantTestOptions } from './progression.ts';
+  AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeCost, treeAppearance, xpFloor, equip, grantTestOptions } from './progression.ts';
 import { ko, en } from '../i18n.ts';
 import { claimFirstRecord, equipAxeSkin, skinQuestCollected, firstRecordBonusActive } from './progression.ts';
 import { awardXp, xpRequired } from './progression.ts';
@@ -43,7 +43,7 @@ test('three growth tracks alter different gameplay properties', () => {
   const base = hit(state, 1000, normal);
   assert.ok(hit(upgrade(state, 'axe'), 1000, normal).damage > base.damage);
   const tree = upgrade({ ...state, treeHp: 0 }, 'tree');
-  assert.equal(tree.treeHp, 400);
+  assert.equal(tree.treeHp, treeHealth(2));
   assert.equal(hit(tree, 1000, normal).value, base.value);
   assert.equal(characterLevel(xpFloor(2) - 1), 1);
   assert.equal(characterLevel(xpFloor(2)), 2);
@@ -81,13 +81,13 @@ test('tree depletion persists and gates upgrades; insufficient funds never trap 
   assert.equal(parseProgress(JSON.stringify(fallen.state)).treeHp, 0);
   assert.equal(upgrade(fallen.state, 'tree'), fallen.state);
   const regrown = regrow(fallen.state);
-  assert.equal(regrown.treeHp, 300);
+  assert.equal(regrown.treeHp, treeHealth(1));
   assert.equal(regrown.wood, fallen.state.wood);
   const funded = collect(fallen.state, 30);
   const upgraded = upgrade(funded, 'tree');
   assert.equal(upgraded.treeLevel, 2);
-  assert.equal(upgraded.treeHp, 400);
-  assert.equal(upgraded.wood, 0);
+  assert.equal(upgraded.treeHp, treeHealth(2));
+  assert.equal(upgraded.wood, 30 - treeCost(1));
   const living = collect(regrown, 100);
   assert.equal(upgrade(living, 'tree'), living);
   const maxed = { ...funded, treeLevel: TREE_MAX };
@@ -110,7 +110,7 @@ test('weighted damage boundaries and exact 50/30/20 distribution', () => {
 });
 
 test('100 successful taps fill fatigue without level-up; fast taps do not add rhythm damage', () => {
-  let state = { ...initialProgress('ko'), xp: xpFloor(200) };
+  let state = { ...initialProgress('ko'), treeLevel: 20, treeHp: treeHealth(20), xp: xpFloor(200) };
   for (let i = 0; i < 100; i++) {
     const result = hit(state, 1000 + i, rolls(0, 0.99));
     assert.equal(result.damage, 1);
@@ -119,7 +119,7 @@ test('100 successful taps fill fatigue without level-up; fast taps do not add rh
     assert.equal(state.fatigue, i + 1);
   }
   assert.equal(state.totalHits, 100);
-  assert.equal(state.treeHp, 200);
+  assert.equal(state.treeHp, treeHealth(20) - 100);
   assert.equal(hit(state, 1200, normal), null);
 });
 
@@ -129,7 +129,7 @@ test('wood is floor of final damage × 0.7, including criticals and overkill', (
   assert.equal(first.critical, true);
   assert.equal(first.damage, 1.05);
   assert.equal(first.value, 0);
-  assert.equal(first.state.treeHp, 298.95);
+  assert.equal(first.state.treeHp, treeHealth(1) - 1.05);
   assert.equal(hit(initialProgress('ko'), 1000, rolls(0, 0.02)).critical, false);
   const maxed = { ...initialProgress('ko'), axeLevel: 200, xp: xpFloor(200), treeHp: 1 };
   const critical = hit(maxed, 1000, rolls(0.8, 0));
@@ -183,7 +183,7 @@ test('v1 migration preserves resources, quest receipts, fatigue and relative tre
     walletCompleted: true, receipt: { address: 'test', signature: 'test', status: 'confirmed' } };
   const next = parseProgress(JSON.stringify(legacy));
   assert.equal(next.version, 9);
-  assert.equal(next.treeHp, 200);
+  assert.equal(next.treeHp, treeHealth(2) / 2);
   for (const key of ['wood', 'harvested', 'fatigue', 'recoveryAt', 'walletCompleted', 'receipt']) assert.deepEqual(next[key], legacy[key]);
   assert.equal(characterLevel(next.xp), 3);
   assert.equal(next.xp, xpFloor(3) + Math.floor(2 / 90 * xpRequired(3)));
@@ -229,8 +229,21 @@ test('matching options require two copies and stack through saves and upgrades',
 });
 
 test('1000 tree levels are grouped into twenty 50-level appearances', () => {
-  assert.deepEqual([1, 2, 3, 1000].map(treeHealth), [300, 400, 500, 100200]);
+  assert.deepEqual([1, 2, 3, 10, 25, 1000].map(treeHealth), [40, 55, 70, 175, 2700, 100200]);
   assert.deepEqual([1, 50, 51, 100, 101, 950, 951, 1000].map(treeAppearance), [0, 0, 1, 1, 2, 18, 19, 19]);
+});
+
+test('opening tree balance rejoins the original curve and caps old HP without losing progress', () => {
+  assert.deepEqual([1, 2, 5, 10, 25].map(treeCost), [15, 25, 55, 105, 750]);
+  for (let level = 2; level <= 25; level++) {
+    assert.ok(treeHealth(level) > treeHealth(level - 1));
+    assert.ok(treeCost(level) > treeCost(level - 1));
+  }
+  const previous = { ...initialProgress('ko'), treeLevel: 5, treeHp: 700, wood: 79, harvested: 123, xp: 99 };
+  const migrated = parseProgress(JSON.stringify(previous));
+  assert.equal(migrated.treeHp, treeHealth(5));
+  for (const key of ['treeLevel', 'wood', 'harvested', 'xp']) assert.equal(migrated[key], previous[key]);
+  assert.throws(() => parseProgress(JSON.stringify({ ...previous, treeHp: 701 })), /INVALID_SAVE/);
 });
 
 test('Korean and English keys and interpolation placeholders match', () => {
