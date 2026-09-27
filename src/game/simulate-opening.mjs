@@ -17,7 +17,7 @@ function run(seed, collectionRate) {
         state = raised;
         if ([2, 5, 10, 15, 25].includes(state.treeLevel)) milestones[state.treeLevel] = {
           hits: hitCount, attackSeconds: hitCount * 2, axeLevel: state.axeLevel,
-          characterLevel: characterLevel(state.xp), wood: state.wood, replays, fatigueStops,
+          characterLevel: characterLevel(state.xp), xp: state.xp, wood: state.wood, replays, fatigueStops,
         };
       }
       continue;

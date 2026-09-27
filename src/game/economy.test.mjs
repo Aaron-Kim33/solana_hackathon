@@ -71,6 +71,9 @@ test('level-up resets fatigue on hits and tree upgrades, never on wood pickup', 
 
 test('XP curve is strictly increasing and every level boundary is exact', () => {
   assert.equal(xpFloor(1), 0);
+  assert.equal(xpFloor(2), 50);
+  assert.equal(xpFloor(5), 1611); // Previous Lv.4 requirement.
+  assert.equal(xpFloor(6), 7790); // Levels beyond the opening quest are unchanged.
   for (let level = 1; level < 200; level++) {
     assert.ok(xpRequired(level) > 0);
     assert.equal(characterLevel(xpFloor(level + 1) - 1), level);

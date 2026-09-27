@@ -124,19 +124,22 @@ export const bonusCoins = (treeLevel: number) => Math.ceil(treeLevel / 10);
 export const COIN_CHANCE = 0.05;
 // Provisional cumulative XP anchors, calibrated against the new coin economy.
 const XP_ANCHORS = [[1, 0], [2, 50], [5, 4000], [20, 420000], [100, 22000000], [200, 140000000]] as const;
-function calculateXpFloor(level: number): number {
+function calculateXpFloor(level: number, anchors: readonly (readonly [number, number])[] = XP_ANCHORS): number {
   if (level <= 1) return 0;
-  for (let i = 1; i < XP_ANCHORS.length; i++) {
-    const [end, amount] = XP_ANCHORS[i];
+  for (let i = 1; i < anchors.length; i++) {
+    const [end, amount] = anchors[i];
     if (level > end) continue;
-    const [start, previous] = XP_ANCHORS[i - 1];
+    const [start, previous] = anchors[i - 1];
     if (level === end) return amount;
     const fraction = Math.log((level - 1) / (start - 1)) / Math.log((end - 1) / (start - 1));
     return Math.round(previous * (amount / previous) ** fraction);
   }
-  return XP_ANCHORS[XP_ANCHORS.length - 1][1];
+  return anchors[anchors.length - 1][1];
 }
-const XP_FLOORS = Array.from({ length: CHARACTER_MAX }, (_, index) => calculateXpFloor(index + 1));
+// Make old Lv.4 XP the new Lv.5 target without changing Lv.6+ progression.
+const EARLY_XP_ANCHORS = [[1, 0], [2, 50], [5, calculateXpFloor(4)]] as const;
+const XP_FLOORS = Array.from({ length: CHARACTER_MAX }, (_, index) =>
+  index < 5 ? calculateXpFloor(index + 1, EARLY_XP_ANCHORS) : calculateXpFloor(index + 1));
 export const xpFloor = (level: number) => XP_FLOORS[Math.min(CHARACTER_MAX, Math.max(1, level)) - 1];
 export const xpRequired = (level: number) => level >= CHARACTER_MAX ? 0 : xpFloor(level + 1) - xpFloor(level);
 export const baseDamage = (level: number) => level;

@@ -11,6 +11,9 @@ function ready() {
 
 test('growth reward accepts existing levels, requires all milestones and is claimed once', () => {
   const state = ready();
+  const existingSave = parseProgress(JSON.stringify({ ...state, xp: 1611 }));
+  assert.equal(existingSave.xp, 1611);
+  assert.equal(questSteps(existingSave)[9], 'complete');
   assert.deepEqual(questSteps(state).slice(9, 13), ['complete', 'active', 'locked', 'locked']);
   for (const patch of [{ axeLevel: 14, unequippedAxeLevels: { default: 14 } }, { treeLevel: 9 }, { xp: 0 }, { skinQuestHarvestStart: state.harvested }]) {
     const blocked = { ...state, ...patch };
