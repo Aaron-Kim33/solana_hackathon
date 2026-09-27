@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
 import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
 import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
@@ -269,6 +269,17 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   const input = { busy: busy || restoring, queued, pending: sessionCache.pending?.command.type ?? null, dragging };
   const navigationLocked = !canLeaveServer(input);
   const button = (text: string, logout: boolean) => <Pressable accessibilityRole="button" disabled={navigationLocked} onPress={() => void run(logout)} style={{ padding: 12, minHeight: 44, backgroundColor: '#29524C', borderRadius: 10, opacity: navigationLocked ? 0.5 : 1 }}><Text style={{ color: '#E6EFDD' }}>{text}</Text></Pressable>;
+  // A saved server session must never briefly render the separate local save.
+  if (!state && (restoring || token.current)) return <View style={{ flex: 1, backgroundColor: '#102D32', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 }}>
+    {(restoring || busy) && <ActivityIndicator size="large" color="#EDCE71" />}
+    <Text style={{ color: '#E6EFDD', fontSize: 16, textAlign: 'center' }}>{restoring || busy
+      ? (ko ? '서버 저장을 확인하고 있어요…' : 'Checking your server save…')
+      : (ko ? '서버 저장에 연결하지 못했어요.' : 'Could not connect to your server save.')}</Text>
+    {!restoring && !busy && <Pressable accessibilityRole="button" onPress={() => void run(false)} style={{ padding: 12, minHeight: 44, backgroundColor: '#29524C', borderRadius: 10 }}>
+      <Text style={{ color: '#E6EFDD' }}>{ko ? '다시 시도' : 'Retry'}</Text>
+    </Pressable>}
+    {!restoring && !!notice && <Text style={{ color: '#FFD18E', textAlign: 'center' }}>{notice}</Text>}
+  </View>;
   return renderMain({ snapshot: state, busy: busy || restoring, queued, pending: sessionCache.pending !== null,
     get now() { return Date.now() + serverClockOffset; }, canChop: !!token.current && canQueueServerHit(input), notice,
     connect: () => { if (!restoring) void run(false); },
