@@ -56,7 +56,13 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   const [queued, setQueued] = useState(0);
   const collecting = useRef(false);
   const [dragging, setDragging] = useState(false);
-  const setCollecting = (value: boolean) => { collecting.current = value; setDragging(value); };
+  const setCollecting = (value: boolean) => {
+    collecting.current = value;
+    setDragging(value);
+    // Dragging wins over taps that have not reached the server yet. An in-flight
+    // or uncertain request is never discarded, and the server remains authoritative.
+    if (value && inputQueue.current.discardHits()) setQueued(inputQueue.current.size);
+  };
   useEffect(() => {
     const sub = AppState.addEventListener('change', next => {
       foreground.current = next === 'active';
@@ -166,8 +172,24 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       const sentType = sessionCache.pending.command.type;
       const beforeHarvested = sessionCache.state.progress.harvested;
       const beforeCoins = sessionCache.state.progress.coins;
-      const response = await api('/commands', sessionCache.pending, token.current);
-      readyAt.current = Date.now() + (sentType === 'collectDrop' ? 250 : 150);
+      let sentAt = 0;
+      let response: PlayerSnapshot;
+      for (let retry = 0; ; retry++) {
+        sentAt = Date.now();
+        try {
+          response = await api('/commands', sessionCache.pending, token.current);
+          break;
+        } catch (error) {
+          // A 429 here means the server did not commit. Retry the same request ID;
+          // never retry an uncertain network failure as a different command.
+          if (!(error instanceof Error && error.message === 'ACTION_TOO_FAST') || retry >= 2) throw error;
+          await new Promise(resolve => setTimeout(resolve, 180 + retry * 150));
+        }
+      }
+      // The network round trip already consumes most of the server's 150/250 ms
+      // action window. Pace from send time, not response time; the server still
+      // enforces the final limit and the safe 429 retry above handles jitter.
+      readyAt.current = sentAt + (sentType === 'collectDrop' ? 300 : 200);
       sessionCache.pending = null;
       updateState(response);
       if (sentType === 'collectDrop') {

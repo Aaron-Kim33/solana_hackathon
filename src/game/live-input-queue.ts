@@ -9,6 +9,13 @@ export function createLiveInputQueue() {
     get size() { return entries.length; },
     hasType(type: GameCommand['type']) { return entries.some(entry => entry.command.type === type); },
     clear() { entries.length = 0; },
+    discardHits() {
+      let discarded = 0;
+      for (let index = entries.length - 1; index >= 0; index--) {
+        if (entries[index].command.type === 'hit') { entries.splice(index, 1); discarded++; }
+      }
+      return discarded;
+    },
     push(command: GameCommand, now: number): boolean {
       if (command.type === 'collectDrop' && entries.some(e => e.command.type === 'collectDrop' && e.command.dropId === command.dropId)) return true;
       if (entries.length >= INPUT_QUEUE_LIMIT) return false;

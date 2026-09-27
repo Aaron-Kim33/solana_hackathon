@@ -22,6 +22,15 @@ test('backlog is bounded, deduplicates pickups and can be discarded on suspensio
   q.clear(); assert.equal(q.size, 0);
   q.push({ type: 'hit' }, 1000); assert.equal(q.take(3000, 0).command, undefined);
 });
+test('dragging discards only unsent taps so collection is next after an in-flight request', () => {
+  const q = createLiveInputQueue();
+  q.push({ type: 'hit' }, 1000);
+  q.push({ type: 'collectDrop', dropId: 'drop_1234' }, 1001);
+  q.push({ type: 'hit' }, 1002);
+  assert.equal(q.discardHits(), 2);
+  assert.equal(q.size, 1);
+  assert.deepEqual(q.take(1250, 1250).command, { type: 'collectDrop', dropId: 'drop_1234' });
+});
 test('one-shot actions can be detected before another copy enters the queue', () => {
   const q = createLiveInputQueue();
   assert.equal(q.hasType('claimFirstRecord'), false);
