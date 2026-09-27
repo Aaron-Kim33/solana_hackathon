@@ -6,7 +6,7 @@ import { GemArt, GEM_COLORS } from './GemArt';
 import { createFusionAction } from './fusion-action';
 import { GEM_FUSION_COST, GEM_FUSION_CHANCE } from './progression';
 import { translate, type TranslationKey } from '../i18n';
-import { AXE_MAX, CHARACTER_MAX, OPTION_ITEMS, axeCost, characterLevel, combatStats, equip,
+import { AXE_MAX, CHARACTER_MAX, OPTION_ITEMS, axeCost, axeUpgradeReady, characterLevel, combatStats, equip,
   equipAxeSkin, firstRecordBonusActive, grantTestOptions, xpFloor, type Progress } from './progression';
 import { GEM_TIERS, GEM_VALUES, optionInfo, openGem, grantTestGems, xpRequired, axeLevelFor, pioneerOwned, type OptionId, type GemTier } from './progression';
 import { TALENT_IDS, TALENT_MAX, talentCost, talentValue, upgradeTalent } from './progression';
@@ -138,7 +138,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
         <Text style={s.muted}>{t('ownedCoins', progress.coins)}</Text>
         <Text style={s.muted}>{t('coinHint')}</Text>
         {button(t(progress.axeLevel >= AXE_MAX ? 'maxLevel' : 'axeCoinCost', axeCost(progress.axeLevel)), onUpgrade,
-          progress.axeLevel >= AXE_MAX || progress.coins < axeCost(progress.axeLevel))}
+          !axeUpgradeReady(progress))}
       </View>
     </>}
 

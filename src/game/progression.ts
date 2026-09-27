@@ -114,6 +114,8 @@ export function encounterHealth(state: Pick<Progress, 'treeLevel' | 'bosses'>) {
 }
 export const treeAppearance = (level: number) => Math.min(19, Math.floor((level - 1) / 50));
 export const axeCost = (level: number) => level * 20;
+export const axeUpgradeReady = (state: Pick<Progress, 'axeLevel' | 'coins'>) =>
+  state.axeLevel < AXE_MAX && state.coins >= axeCost(state.axeLevel);
 export const treeCost = (level: number) => level <= 10 ? level * 10 + 5
   : level < 25 ? Math.round(105 + (25 * 30 - 105) * (level - 10) / 15)
     : level * 30;

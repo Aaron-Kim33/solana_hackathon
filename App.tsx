@@ -33,7 +33,7 @@ import { GameMessage, Language, translate, TranslationKey } from './src/i18n';
 import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, upgrade, testRest,
   combatStats, treeAppearance, equip, grantTestOptions, OPTION_ITEMS, OptionId,
   claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
-  treeHealth, axeCost, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
+  treeHealth, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
 
@@ -555,6 +555,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         <Pressable accessibilityRole="button" accessibilityLabel={t('openAxe')} hitSlop={8}
           onPress={() => setPanel('axe')} style={({ pressed }) => [styles.forestAxe, pressed && { opacity: 0.65 }]}>
           <AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} />
+          {axeUpgradeReady(progress) && <View pointerEvents="none" style={styles.forestAxeUpgradeDot} />}
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={t('gemFusion')}
           onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestGem, pressed && { opacity: 0.65 }]}>
@@ -872,6 +873,8 @@ const styles = StyleSheet.create({
   axeRune: { position: 'absolute', top: 8, left: 12, width: 9, height: 13, borderRadius: 2, backgroundColor: '#C1FFEF', transform: [{ rotate: '30deg' }] },
   axeBand: { position: 'absolute', top: 48, width: 10, height: 12, backgroundColor: '#14F195' },
   forestAxe: { position: 'absolute', top: 12, left: 10, zIndex: 3, transform: [{ scale: 0.7 }] },
+  forestAxeUpgradeDot: { position: 'absolute', top: 12, right: -5, width: 14, height: 14,
+    borderRadius: 7, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
   forestCharacter: { position: 'absolute', left: '13%', bottom: '20%', width: 92, height: 112, zIndex: 5 },
   forestCharacterHead: { position: 'absolute', left: 19, top: 16, width: 34, height: 33, borderRadius: 15, backgroundColor: '#EBC292', zIndex: 2 },
   forestCharacterHat: { position: 'absolute', top: -8, left: -5, width: 44, height: 17, borderRadius: 8, backgroundColor: '#C87348' },

@@ -1,12 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { initialProgress, RECOVERY_MS, recover, hit, collect, upgrade, regrow, testRest, characterLevel, walletUnlocked, questSteps, parseProgress,
-  AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeCost, treeAppearance, xpFloor, equip, grantTestOptions } from './progression.ts';
+  AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeCost, treeAppearance, axeCost, axeUpgradeReady, xpFloor, equip, grantTestOptions } from './progression.ts';
 import { ko, en } from '../i18n.ts';
 import { claimFirstRecord, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs } from './progression.ts';
 import { awardXp, xpRequired } from './progression.ts';
 const normal = () => 0.5;
 const rolls = (...values) => () => values.shift() ?? 0.99;
+
+test('equipped axe upgrade indicator follows coins and disappears at the cap', () => {
+  const state = initialProgress('en');
+  assert.equal(axeUpgradeReady({ ...state, coins: axeCost(1) - 1 }), false);
+  assert.equal(axeUpgradeReady({ ...state, coins: axeCost(1) }), true);
+  const upgraded = upgrade({ ...state, coins: axeCost(1) }, 'axe');
+  assert.equal(upgraded.axeLevel, 2);
+  assert.equal(axeUpgradeReady(upgraded), false);
+  assert.equal(axeUpgradeReady({ ...state, axeLevel: AXE_MAX, coins: 999999 }), false);
+});
 
 test('recovery is discrete and preserves elapsed intervals through restart', () => {
   const state = { ...initialProgress('ko'), fatigue: 100, recoveryAt: 1000 };
