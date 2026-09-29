@@ -6,6 +6,12 @@ export function parseRequest(value: unknown): CommandRequest {
   if (typeof r.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(r.requestId) ||
     !Number.isSafeInteger(r.expectedRevision) || r.expectedRevision < 0 || !r.command || typeof r.command !== 'object') throw new Error('INVALID_COMMAND');
   const c = r.command;
+  if (c.type === 'claimAdventure') {
+    if (!Number.isInteger(c.stage) || c.stage < 0 || c.stage > 5 ||
+      Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
+      Object.keys(c).some(key => !['type', 'stage'].includes(key))) throw new Error('INVALID_COMMAND');
+    return r;
+  }
   if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'collectDrop', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||
     (c.type === 'equipOption' && ((c.slot !== 0 && c.slot !== 1) || typeof c.item !== 'string' ||
       !(Object.hasOwn(OPTION_ITEMS, c.item) || GEM_TIERS.some(tier => Object.keys(OPTION_ITEMS).some(kind => c.item === `${tier}:${kind}`))))) ||

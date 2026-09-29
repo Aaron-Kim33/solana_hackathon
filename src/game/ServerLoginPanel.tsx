@@ -10,7 +10,7 @@ import { pendingServerRecord, savePendingServerRecord } from '../solana/pending-
 import { recoverServerRecord, recordRecoveryNotice } from '../solana/server-record-recovery';
 import { recordErrorKey } from '../solana/record-errors';
 import { translate } from '../i18n';
-import { firstRecordBonusActive, optionInfo } from './progression';
+import { firstRecordBonusActive, optionInfo, GEM_TIERS, GEM_FUSION_COST } from './progression';
 import { deployment } from '../deployment';
 import { createLiveInputQueue } from './live-input-queue';
 import { canLeaveServer, canQueueServerHit } from './server-input-policy';
@@ -173,6 +173,8 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       const sentType = sessionCache.pending.command.type;
       const beforeHarvested = sessionCache.state.progress.harvested;
       const beforeCoins = sessionCache.state.progress.coins;
+      const beforeGems = sessionCache.state.progress.gems;
+      const sentCommand = sessionCache.pending.command;
       const hadFirstRecordPower = firstRecordBonusActive(sessionCache.state.progress);
       let sentAt = 0;
       let response: PlayerSnapshot;
@@ -205,6 +207,16 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         setNotice(translate(language, 'firstRecordRewardReceived'));
       if (sentType === 'claimGrowthReward' && response.progress.growthRewardClaimed)
         setNotice(`${translate(language, 'rewardClaimed')} · ${translate(language, 'gemReceived')}`);
+      if (sentType === 'claimAdventure') setNotice(translate(language, 'rewardClaimed'));
+      if (sentCommand.type === 'drawGem') {
+        const tier = GEM_TIERS.find(candidate => response.progress.gems[candidate] > beforeGems[candidate]);
+        if (tier) setNotice(translate(language, 'woodGemReceived', translate(language, tier)));
+      }
+      if (sentCommand.type === 'fuse') {
+        const nextTier = GEM_TIERS[GEM_TIERS.indexOf(sentCommand.tier) + 1];
+        const success = nextTier !== undefined && response.progress.gems[nextTier] > beforeGems[nextTier];
+        setNotice(`${translate(language, success ? 'fusionSuccess' : 'fusionFailed')} · ${translate(language, success ? 'fusionSuccessBody' : 'fusionFailedBody', GEM_FUSION_COST)}`);
+      }
       if (sentType === 'openGem' && response.progress.inventory.length > 0) {
         const item = response.progress.inventory.at(-1)!;
         const option = optionInfo(item);
@@ -246,8 +258,9 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   };
   const enqueue = (command: GameCommand): boolean => {
     if (!foreground.current || !token.current || (lock.current && !sessionCache.pending) || (sessionCache.pending && !lock.current)) return false;
-    if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward') {
+    if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
       if (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type)) return false;
+      if (command.type === 'claimAdventure' && command.stage !== sessionCache.state?.progress.adventureClaimed) return false;
       if (command.type === 'claimFirstRecord' && sessionCache.state?.progress.firstRecordClaimed) return false;
       if (command.type === 'claimGrowthReward' && sessionCache.state?.progress.growthRewardClaimed) return false;
       if (command.type === 'acknowledgeWallet' && sessionCache.state?.walletCoinRewardClaimed) return false;

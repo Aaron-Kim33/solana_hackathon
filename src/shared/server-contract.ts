@@ -4,7 +4,7 @@ export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } 
   | { type: 'claimGrowthReward' } | { type: 'openGem'; tier: GemTier } | { type: 'equipOption'; slot: 0 | 1; item: OptionId }
   | { type: 'hit' } | { type: 'hitBatch'; count: number } | { type: 'collectDrop'; dropId: string } | { type: 'recover' } | { type: 'regrow' } | { type: 'upgradeTree' }
   | { type: 'upgradeAxe' } | { type: 'equipAxe'; skin: Progress['axeSkin'] }
-  | { type: 'acknowledgeWallet' } | { type: 'claimFirstRecord' };
+  | { type: 'acknowledgeWallet' } | { type: 'claimFirstRecord' } | { type: 'claimAdventure'; stage: number };
 export type CommandRequest = { requestId: string; expectedRevision: number; command: GameCommand };
 export type ServerDrop = { id: string; value: number; expiresAt: number };
 export type PlayerSnapshot = { revision: number; provenance: 'local-test' | 'server'; progress: Progress;

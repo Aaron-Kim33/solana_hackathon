@@ -5,6 +5,7 @@ import {
   Animated,
   AppState,
   Alert,
+  Image,
   Linking,
   Modal,
   ScrollView,
@@ -22,6 +23,7 @@ import { recordHarvest, checkHarvest } from './src/solana/achievement';
 import { recordErrorKey } from './src/solana/record-errors';
 import { CharacterPanel } from './src/game/CharacterPanel';
 import { GemArt } from './src/game/GemArt';
+import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { PlayGuide } from './src/game/PlayGuide';
 import { questShortcut } from './src/game/quest-shortcut';
@@ -60,6 +62,13 @@ const HOLD_TO_CHOP_MS = 280;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
+
+const hudAmount = (value: number) => {
+  if (value < 10_000) return value.toLocaleString('en-US');
+  const unit = value >= 1_000_000 ? 1_000_000 : 1_000;
+  const scaled = value / unit;
+  return `${scaled < 100 ? scaled.toFixed(1) : Math.floor(scaled)}${unit === 1_000_000 ? 'M' : 'K'}`;
+};
 
 export default function App() {
   const [language, setLanguage] = useState<Language>(__DEV__ ? 'ko' : 'en');
@@ -104,8 +113,6 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const stats = useMemo(() => combatStats(progress), [progress]);
   const axePower = `${stats.min}–${stats.max}`;
   const stage = treeAppearance(progress.treeLevel);
-  // Twenty prototype palettes, one per 50 levels; final art can replace these independently.
-  const leafHue = boss === 'gate' ? 280 : boss === 'first' ? 25 : (145 + stage * 29) % 360;
   const xpValue = level === CHARACTER_MAX ? 1 : progress.xp - xpFloor(level);
   const xpMax = level === CHARACTER_MAX ? 1 : xpRequired(level);
   const unlocked = walletUnlocked(progress);
@@ -154,6 +161,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     ]);
   };
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
+  const gameplayNotice = online
+    ? server!.notice || (server!.pending && !server!.busy
+      ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.')
+      : null)
+    : message.key === 'intro' ? null : t(message.key, message.value);
   const [recording, setRecording] = useState(false);
   const [recordNotice, setRecordNotice] = useState<GameMessage | null>(null);
   const signature = progress.receipt?.signature;
@@ -167,11 +179,18 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const draggingLogs = useRef(new Set<number>());
   const holdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdingTree = useRef(false);
+  const [isHolding, setIsHolding] = useState(false);
+  const holdPulse = useRef(new Animated.Value(0)).current;
+  const holdAnimation = useRef<Animated.CompositeAnimation | null>(null);
   const stopHoldingTree = useCallback(() => {
     holdingTree.current = false;
     if (holdTimer.current) clearInterval(holdTimer.current);
     holdTimer.current = null;
-  }, []);
+    holdAnimation.current?.stop();
+    holdAnimation.current = null;
+    holdPulse.setValue(0);
+    setIsHolding(false);
+  }, [holdPulse]);
   const seenServerHits = useRef(server?.snapshot?.progress.totalHits ?? 0);
   const damageTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const timer of damageTimers.current) clearTimeout(timer); }, []);
@@ -250,20 +269,28 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   }, [commit, stopHoldingTree]);
 
   const swing = useRef(new Animated.Value(0)).current;
+  const impact = useRef(new Animated.Value(0)).current;
   const playChopMotion = useCallback(() => {
     swing.stopAnimation(); swing.setValue(0);
     Animated.sequence([
-      Animated.timing(swing, { toValue: 0.5, duration: 110, useNativeDriver: true }),
-      Animated.timing(swing, { toValue: 1, duration: 100, useNativeDriver: true }),
-      Animated.spring(swing, { toValue: 0, speed: 18, bounciness: 3, useNativeDriver: true }),
+      Animated.timing(swing, { toValue: 0.25, duration: 140, useNativeDriver: true }),
+      Animated.timing(swing, { toValue: 0.5, duration: 90, useNativeDriver: true }),
+      Animated.timing(swing, { toValue: 1, duration: 250, useNativeDriver: true }),
     ]).start();
     shake.stopAnimation(); shake.setValue(0);
     Animated.sequence([
+      Animated.delay(210),
       Animated.timing(shake, { toValue: 7, duration: 45, useNativeDriver: true }),
       Animated.timing(shake, { toValue: -5, duration: 55, useNativeDriver: true }),
       Animated.spring(shake, { toValue: 0, speed: 28, bounciness: 8, useNativeDriver: true }),
     ]).start();
-  }, [shake, swing]);
+    impact.stopAnimation(); impact.setValue(0);
+    Animated.sequence([
+      Animated.delay(210),
+      Animated.timing(impact, { toValue: 1, duration: 75, useNativeDriver: true }),
+      Animated.timing(impact, { toValue: 0, duration: 260, useNativeDriver: true }),
+    ]).start();
+  }, [impact, shake, swing]);
 
   const chop = useCallback(() => {
     if (panel || progressRef.current.treeHp === 0) return;
@@ -330,6 +357,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const startHoldingTree = () => {
     if (holdingTree.current || panel || progressRef.current.treeHp <= 0 || progressRef.current.fatigue >= 100 || draggingLogs.current.size > 0) return;
     holdingTree.current = true;
+    setIsHolding(true);
+    holdAnimation.current = Animated.loop(Animated.sequence([
+      Animated.timing(holdPulse, { toValue: 1, duration: 480, useNativeDriver: true }),
+      Animated.timing(holdPulse, { toValue: 0, duration: 480, useNativeDriver: true }),
+    ]));
+    holdAnimation.current.start();
     chopRef.current();
     holdTimer.current = setInterval(() => {
       if (holdingTree.current) chopRef.current();
@@ -490,6 +523,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
+      <Image source={require('./assets/forest/background.png')} style={styles.screenBackground} resizeMode="cover" />
+      <View pointerEvents="none" style={styles.hudScrim} />
+      <View pointerEvents="none" style={styles.hudScrimFadeOne} />
+      <View pointerEvents="none" style={styles.hudScrimFadeTwo} />
+      <View pointerEvents="none" style={styles.hudScrimFadeThree} />
       <View style={styles.gameScreen}>
       {saveError && <Text style={styles.saveError}>{t('saveError')}</Text>}
       <View style={styles.header}>
@@ -515,9 +553,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       </View>
 
       <View style={styles.statsRow}>
-        <StatCard label={t('wood')} value={wood.toLocaleString(language)} accent="#F5C76B" />
-        <StatCard label={t('coins')} value={progress.coins.toLocaleString(language)} accent="#FFE38D" />
-        <StatCard label={t('axe')} value={`Lv. ${progress.axeLevel} · ${axePower}`} accent="#91D3B1" />
+        <ResourceHud label={t('wood')} icon="🪵" value={hudAmount(wood)} exact={wood.toLocaleString(language)} color="#A96842" />
+        <ResourceHud label={t('coins')} icon="●" value={hudAmount(progress.coins)} exact={progress.coins.toLocaleString(language)} color="#F9DA3F" />
+        <View accessible accessibilityLabel={`${t('axe')} Lv. ${progress.axeLevel}, ${axePower}`} style={styles.attackHud}>
+          <View style={[styles.hudIcon, { backgroundColor: '#E74751' }]}><Text style={styles.attackHudIcon}>🪓</Text></View>
+          <View style={styles.attackHudText}><Text style={styles.attackHudLevel}>Lv. {progress.axeLevel}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65} style={styles.attackHudPower}>{axePower}</Text></View>
+        </View>
       </View>
 
       <View style={styles.progressGroup}>
@@ -540,8 +581,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <Text style={styles.progressValue}>{fatigue}%</Text>
         </View>
         <Meter value={fatigue} max={100} color={fatigue > 65 ? '#EC7A67' : '#EFC75E'} />
-        <Text style={styles.recoveryText}>{fatigue > 0 ? t('recoveryIn', countdown) : t('fullyRested')}</Text>
-        <Text style={styles.recoveryText}>{t('treeBonus', progress.treeLevel)}</Text>
+        <View style={styles.forestInfoPanel}>
+          <Text style={styles.forestInfoText}>{fatigue > 0 ? t('recoveryIn', countdown) : t('fullyRested')}</Text>
+          <Text style={styles.forestInfoText}>{t('treeBonus', progress.treeLevel)}</Text>
+        </View>
       </View>
 
       <View style={styles.forest}>
@@ -561,20 +604,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestGem, pressed && { opacity: 0.65 }]}>
           <GemArt tier="high" size={44} />
         </Pressable>
-        <View style={styles.moon} />
-        <View style={styles.hillBack} />
-        <View style={styles.hillFront} />
-        {treeHp > 0 && <View pointerEvents="none" style={styles.forestCharacter}>
-          <View style={styles.forestCharacterLegLeft} /><View style={styles.forestCharacterLegRight} />
-          <View style={styles.forestCharacterBody} /><View style={styles.forestCharacterArm} />
-          <View style={styles.forestCharacterHead}><View style={styles.forestCharacterHat} /><View style={styles.forestCharacterEye} /></View>
-          <Animated.View style={[styles.forestCharacterAxe, { transform: [
-            { rotate: swing.interpolate({ inputRange: [0, 0.5, 1], outputRange: ['-30deg', '-62deg', '42deg'] }) },
-            { scale: 0.62 },
-          ] }]}>
-            <AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} />
-          </Animated.View>
-        </View>}
+        {treeHp > 0 && <ForesterSprite motion={swing} skin={progress.axeSkin}
+          crowned={progress.wardenRewardsClaimed === 3} size={155} style={styles.forestCharacter} />}
+        {treeHp > 0 && isHolding && <Animated.View pointerEvents="none" style={[styles.holdGlow, {
+          opacity: holdPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.48] }),
+          transform: [{ scale: holdPulse.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.18] }) }],
+        }]} />}
         {treeHp > 0 ? <Animated.View style={[styles.treeButton, { transform: [{ translateX: shake }] }]}>
         <Pressable
           accessibilityRole="button"
@@ -586,20 +621,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           onPressOut={stopHoldingTree}
           style={({ pressed }) => [styles.treeTouch, pressed && styles.treePressed, mode === 'collect' && styles.treeDisabled]}
         >
-          <View pointerEvents="none" style={styles.canopy}>
-            <View style={[styles.leafLeft, { backgroundColor: `hsl(${leafHue}, 34%, 40%)` }]} />
-            <View style={[styles.leafRight, { backgroundColor: `hsl(${leafHue}, 32%, 52%)` }]} />
-            <View style={[styles.leafTop, { backgroundColor: `hsl(${leafHue}, 36%, 64%)`, borderRadius: 50 - (stage % 4) * 8 }]} />
-            <View style={[styles.leafGlint, { backgroundColor: `hsl(${leafHue}, 42%, 78%)` }]} />
-          </View>
-          <View style={[styles.trunk, boss && { backgroundColor: boss === 'gate' ? '#59415F' : '#754335', borderColor: '#E3AA6B', borderWidth: 3 }]}>
-            {boss && <View pointerEvents="none" style={{ position: 'absolute', top: 20, flexDirection: 'row', gap: 16, alignSelf: 'center' }}>
-              <View style={{ width: 9, height: 6, backgroundColor: '#FFE59C' }} /><View style={{ width: 9, height: 6, backgroundColor: '#FFE59C' }} />
-            </View>}
-            <View style={styles.trunkLine} />
-            <View style={styles.treeKnot} />
-            <View style={styles.trunkLine} />
-          </View>
+          <Image source={require('./assets/forest/tree.png')} style={styles.treeSprite} resizeMode="contain" />
+          {boss && <View pointerEvents="none" style={styles.bossEyes}><View style={styles.bossEye} /><View style={styles.bossEye} /></View>}
           <Text style={styles.hitHint}>{t(mode === 'collect' ? 'collecting' : firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}</Text>
         </Pressable>
         </Animated.View> : <View style={styles.felledTree}>
@@ -608,6 +631,15 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <Text style={styles.markerText}>{t(progress.treeLevel >= TREE_MAX ? 'endingTitle' : 'treeUpgradeMarker')}</Text>
           </Pressable>
         </View>}
+        {treeHp > 0 && <Animated.View pointerEvents="none" style={[styles.chopImpact, {
+          opacity: impact,
+          transform: [{ scale: impact.interpolate({ inputRange: [0, 1], outputRange: [0.35, 1.2] }) }],
+        }]}>
+          <View style={styles.chopImpactCore} />
+          <View style={[styles.chopImpactRay, { transform: [{ rotate: '20deg' }] }]} />
+          <View style={[styles.chopImpactRay, { transform: [{ rotate: '75deg' }] }]} />
+          <View style={[styles.chopImpactRay, { transform: [{ rotate: '135deg' }] }]} />
+        </Animated.View>}
         {damagePopups.map((popup) => (
           <FloatingDamage key={popup.id} popup={popup} />
         ))}
@@ -617,10 +649,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         ))}
       </View>
 
-      <View style={styles.messageBox}>
-        {server && !online && <Text style={[styles.message, { color: '#FFD18E', fontWeight: '800' }]}>{t('localPracticeNotice')}</Text>}
-        <Text style={styles.message}>{online ? server!.notice || (server!.pending && !server!.busy ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.') : server!.busy || server!.queued ? (language === 'ko' ? '동기화 중…' : 'Syncing…') : (language === 'ko' ? '서버에 저장됨 · 길게 눌러 벌목, 드래그하여 회수' : 'Saved on server · Hold to chop, drag to collect')) : t(message.key, message.value)}</Text>
-      </View>
+      {!!gameplayNotice && <View style={styles.messageBox}>
+        <Text accessibilityLiveRegion="polite" style={styles.message}>{gameplayNotice}</Text>
+      </View>}
 
       <View style={styles.actions}>
         {__DEV__ && <Pressable onPress={rest} style={styles.restButton}>
@@ -646,7 +677,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
       {online && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') && <Text style={{ color: '#FFD18E', paddingVertical: 10 }}>
-        {language === 'ko' ? '서버 저장: 첫 기록과 성장 보상·보석 개봉·옵션 장착을 사용할 수 있어요. 이후 보상·보석 합성/뽑기·특성은 아직 연결 전이에요.' : 'Server save: First Record, growth reward, gem opening and option equipping are available. Later rewards, gem fusion/draws and talents are not connected yet.'}
+        {language === 'ko' ? '서버 저장: 퀘스트 보상과 보석 개봉·합성·목재 뽑기·옵션 장착을 사용할 수 있어요. 심림 숙련 보상과 특성은 아직 연결 전이에요.' : 'Server save: Quest rewards, gem opening, fusion, wood draws and option equipping are available. Deepwood mastery rewards and talents are not connected yet.'}
       </Text>}
       {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') &&
         <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
@@ -689,8 +720,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
                 index === 17 ? `${t('pioneerAxe')} ${Math.min(axeLevelFor(progress, 'pioneer'), 10)}/10 · ${t(progress.axeSkin === 'pioneer' ? 'skinEquipped' : 'equipSkin')}` :
                 `${t('tree')} ${Math.min(progress.treeLevel, 100)}/100 · ${t('character')} ${Math.min(level, 20)}/20`}</Text>
               {adventureReady(progress) && <Text style={styles.progressLabel}>{t('claimReady')}</Text>}
-              <Pressable accessibilityRole="button" disabled={loaded.error || !adventureReady(progress)} style={[styles.languageButton, !adventureReady(progress) && styles.disabledButton]} onPress={() => {
+              <Pressable accessibilityRole="button" disabled={loaded.error || !adventureReady(progress) || (online && (server!.busy || server!.pending || server!.queued > 0))} style={[styles.languageButton, (!adventureReady(progress) || (online && (server!.busy || server!.pending || server!.queued > 0))) && styles.disabledButton]} onPress={() => {
                 if (progressRef.current.adventureClaimed !== index - 13) return;
+                if (online) { server!.command({ type: 'claimAdventure', stage: index - 13 }); return; }
                 const next = claimAdventure(progressRef.current);
                 if (next !== progressRef.current && commit(next)) Alert.alert(t('rewardClaimed'), t((['rewardLowGem', 'rewardCoins300', 'rewardMediumGem', 'rewardPioneer', 'rewardCoins1000', 'rewardHighGem'] as const)[index - 13]));
               }}><Text style={styles.walletText}>{t('claimReward')}</Text></Pressable>
@@ -771,10 +803,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   );
 }
 
-function AxeArt({ commemorative, pioneer = false, warden = false, recovery = false, crowned = false }: { commemorative: boolean; pioneer?: boolean; warden?: boolean; recovery?: boolean; crowned?: boolean }) {
-  return <View style={styles.axeArt}>
+function AxeArt({ commemorative, pioneer = false, warden = false, recovery = false, crowned = false, mirror = false }: { commemorative: boolean; pioneer?: boolean; warden?: boolean; recovery?: boolean; crowned?: boolean; mirror?: boolean }) {
+  return <View style={[styles.axeArt, mirror && { transform: [{ scaleX: -1 }] }]}>
     <View style={[styles.axeHandle, commemorative && { backgroundColor: '#6A49A8' }, pioneer && { backgroundColor: '#377C85' }, warden && { backgroundColor: '#234A63' }]}>
-      <View style={[styles.axeBlade, commemorative && { backgroundColor: '#9945FF', borderLeftColor: '#14F195' }, pioneer && { backgroundColor: '#DCAA54', borderLeftColor: '#FFF0BC' }, warden && { backgroundColor: '#69C9ED', borderLeftColor: '#DBF7FF', width: 52 }, recovery && { backgroundColor: '#80BC78', borderLeftColor: '#E5F9B1' }]}>
+      <View style={[styles.axeBlade, mirror && { left: -40 }, commemorative && { backgroundColor: '#9945FF', borderLeftColor: '#14F195' }, pioneer && { backgroundColor: '#DCAA54', borderLeftColor: '#FFF0BC' }, warden && { backgroundColor: '#69C9ED', borderLeftColor: '#DBF7FF', width: 52 }, recovery && { backgroundColor: '#80BC78', borderLeftColor: '#E5F9B1' }]}>
         {commemorative && <View style={styles.axeRune} />}
         {crowned && warden && <View style={[StyleSheet.absoluteFill, { backgroundColor: '#D5A12A', borderWidth: 3, borderColor: '#FFD56A', borderRadius: 5 }]}><Text style={{ color: '#FFF5C4', textAlign: 'center' }}>◆</Text></View>}
       </View>
@@ -793,8 +825,11 @@ function InfoLabel({ label, accessibilityLabel, onPress }: { label: string; acce
   </View>;
 }
 
-function StatCard({ label, value, accent }: { label: string; value: string; accent: string }) {
-  return <View style={[styles.statCard, { borderColor: accent }]}><Text style={styles.statLabel}>{label}</Text><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55} style={styles.statValue}>{value}</Text></View>;
+function ResourceHud({ label, icon, value, exact, color }: { label: string; icon: string; value: string; exact: string; color: string }) {
+  return <View accessible accessibilityLabel={`${label} ${exact}`} style={styles.resourceHud}>
+    <View style={[styles.hudIcon, { backgroundColor: color }]}><Text style={icon === '●' ? styles.coinHudIcon : styles.woodHudIcon}>{icon}</Text></View>
+    <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.hudAmount}>{value}</Text>
+  </View>;
 }
 
 function Meter({ value, max, color }: { value: number; max: number; color: string }) {
@@ -872,25 +907,23 @@ const styles = StyleSheet.create({
   axeBlade: { position: 'absolute', top: 0, left: -20, width: 44, height: 30, borderRadius: 7, backgroundColor: '#C3D9D3', borderLeftWidth: 7, borderLeftColor: '#F0F4E5' },
   axeRune: { position: 'absolute', top: 8, left: 12, width: 9, height: 13, borderRadius: 2, backgroundColor: '#C1FFEF', transform: [{ rotate: '30deg' }] },
   axeBand: { position: 'absolute', top: 48, width: 10, height: 12, backgroundColor: '#14F195' },
-  forestAxe: { position: 'absolute', top: 12, left: 10, zIndex: 3, transform: [{ scale: 0.7 }] },
+  forestAxe: { position: 'absolute', top: 12, left: 18, zIndex: 8, transform: [{ scale: 0.7 }] },
   forestAxeUpgradeDot: { position: 'absolute', top: 12, right: -5, width: 14, height: 14,
     borderRadius: 7, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
-  forestCharacter: { position: 'absolute', left: '13%', bottom: '20%', width: 92, height: 112, zIndex: 5 },
-  forestCharacterHead: { position: 'absolute', left: 19, top: 16, width: 34, height: 33, borderRadius: 15, backgroundColor: '#EBC292', zIndex: 2 },
-  forestCharacterHat: { position: 'absolute', top: -8, left: -5, width: 44, height: 17, borderRadius: 8, backgroundColor: '#C87348' },
-  forestCharacterEye: { position: 'absolute', right: 5, top: 15, width: 4, height: 4, borderRadius: 2, backgroundColor: '#203637' },
-  forestCharacterBody: { position: 'absolute', left: 18, top: 49, width: 43, height: 42, borderRadius: 12, backgroundColor: '#729D7C', borderBottomWidth: 7, borderBottomColor: '#EFC75E' },
-  forestCharacterArm: { position: 'absolute', left: 54, top: 55, width: 24, height: 11, borderRadius: 6, backgroundColor: '#EBC292', transform: [{ rotate: '-20deg' }] },
-  forestCharacterLegLeft: { position: 'absolute', left: 22, bottom: 0, width: 15, height: 27, borderRadius: 5, backgroundColor: '#28403F' },
-  forestCharacterLegRight: { position: 'absolute', left: 45, bottom: 0, width: 15, height: 27, borderRadius: 5, backgroundColor: '#28403F' },
-  forestCharacterAxe: { position: 'absolute', left: 48, top: -5, width: 60, height: 95, zIndex: 3 },
-  forestGem: { position: 'absolute', top: 104, left: 16, zIndex: 4, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  forestCharacter: { position: 'absolute', left: '25%', bottom: 18, zIndex: 5 },
+  holdGlow: { position: 'absolute', left: '49%', bottom: '25%', width: 92, height: 92, borderRadius: 46, backgroundColor: '#FFF4A3', zIndex: 4 },
+  forestGem: { position: 'absolute', top: 104, left: 24, zIndex: 8, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   autoPickupButton: { position: 'absolute', bottom: 42, left: 8, zIndex: 4, minHeight: 44,
     paddingHorizontal: 8, paddingVertical: 4, gap: 2, borderRadius: 10, backgroundColor: '#214743', borderWidth: 1, borderColor: '#91D3B1', alignItems: 'center', justifyContent: 'center' },
   rewardPreview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatarAxePosition: { position: 'absolute', top: 72, marginLeft: 125 },
-  container: { flex: 1, backgroundColor: '#102D32', paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0 },
-  gameScreen: { flex: 1, paddingBottom: 24 },
+  container: { flex: 1, backgroundColor: '#102D32', paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0 },
+  screenBackground: { position: 'absolute', left: 0, top: 0, width: '100%', height: '117%' },
+  hudScrim: { position: 'absolute', left: 0, right: 0, top: 0, height: 285, backgroundColor: '#092A2E99' },
+  hudScrimFadeOne: { position: 'absolute', left: 0, right: 0, top: 285, height: 20, backgroundColor: '#092A2E70' },
+  hudScrimFadeTwo: { position: 'absolute', left: 0, right: 0, top: 305, height: 20, backgroundColor: '#092A2E46' },
+  hudScrimFadeThree: { position: 'absolute', left: 0, right: 0, top: 325, height: 20, backgroundColor: '#092A2E20' },
+  gameScreen: { flex: 1, paddingHorizontal: 20, paddingBottom: 24 },
   menuButton: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#25484A', alignItems: 'center', justifyContent: 'center', gap: 5 },
   menuLine: { width: 20, height: 2, borderRadius: 1, backgroundColor: '#F8EED6' },
   modalBackdrop: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: '#061A20CC' },
@@ -915,6 +948,8 @@ const styles = StyleSheet.create({
   avatarAxeBlade: { position: 'absolute', top: -5, left: -20, width: 44, height: 30, borderRadius: 7, backgroundColor: '#C3D9D3', borderLeftWidth: 7, borderLeftColor: '#F0F4E5' },
   saveError: { color: '#FFB8A8', padding: 12 },
   recoveryText: { color: '#EFC75E', fontSize: 12, marginTop: 8 },
+  forestInfoPanel: { marginTop: 9, paddingHorizontal: 11, paddingVertical: 7, gap: 2, borderRadius: 10, backgroundColor: '#0A292CEB', borderWidth: 1, borderColor: '#769B894D' },
+  forestInfoText: { color: '#FFF2D3', fontSize: 12, fontWeight: '800' },
   questRow: { gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#355D59' },
   questActive: { borderColor: '#EFC75E', backgroundColor: '#25484A' },
   languageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8, marginTop: 10 },
@@ -931,9 +966,17 @@ const styles = StyleSheet.create({
   walletDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#EFC75E', marginRight: 6 },
   walletDotConnected: { backgroundColor: '#91D3B1' },
   walletText: { color: '#D4E5DD', fontSize: 12, fontWeight: '700' },
-  statsRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
-  statCard: { flex: 1, backgroundColor: '#18383B', borderWidth: 1, borderRadius: 14, padding: 12 },
-  statLabel: { color: '#8EACA6', fontSize: 11, fontWeight: '700' },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 9, paddingHorizontal: 5, paddingVertical: 7, borderRadius: 14, backgroundColor: '#0B3032B0' },
+  resourceHud: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  hudIcon: { width: 29, height: 29, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  woodHudIcon: { fontSize: 21, lineHeight: 27 },
+  coinHudIcon: { color: '#FFF29E', fontSize: 20, lineHeight: 26 },
+  hudAmount: { flexShrink: 1, color: '#FFF8E8', fontSize: 17, fontWeight: '900', textShadowColor: '#17312B', textShadowRadius: 3 },
+  attackHud: { flex: 1.25, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  attackHudIcon: { fontSize: 20, lineHeight: 27 },
+  attackHudText: { flex: 1, minWidth: 0 },
+  attackHudLevel: { color: '#FFF5DA', fontSize: 12, fontWeight: '900' },
+  attackHudPower: { color: '#FF7981', fontSize: 15, fontWeight: '900' },
   statValue: { color: '#F8EED6', marginTop: 4, fontSize: 16, fontWeight: '800' },
   progressGroup: { marginTop: 16 },
   progressLabelRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
@@ -942,11 +985,14 @@ const styles = StyleSheet.create({
   progressValue: { color: '#E3DABD', fontSize: 12, fontWeight: '800' },
   meter: { height: 8, backgroundColor: '#25484A', borderRadius: 8, overflow: 'hidden' },
   meterFill: { height: '100%', borderRadius: 8 },
-  forest: { flex: 1, marginTop: 12, backgroundColor: '#234D4C', borderRadius: 24, overflow: 'hidden', minHeight: 0, position: 'relative' },
-  moon: { width: 74, height: 74, borderRadius: 37, backgroundColor: '#F4DE9B', position: 'absolute', top: 33, right: 35, opacity: 0.95 },
-  hillBack: { position: 'absolute', width: '130%', height: 230, bottom: -100, left: -50, borderRadius: 200, backgroundColor: '#1D4141' },
-  hillFront: { position: 'absolute', width: '130%', height: 175, bottom: -105, right: -65, borderRadius: 200, backgroundColor: '#17393B' },
-  treeButton: { position: 'absolute', left: '25%', top: '19%', width: '50%', height: '63%', alignItems: 'center', justifyContent: 'flex-end' },
+  forest: { flex: 1, marginTop: 2, marginHorizontal: -20, overflow: 'hidden', minHeight: 0, position: 'relative' },
+  treeButton: { position: 'absolute', left: '21%', top: 0, width: '79%', height: '100%', alignItems: 'center', justifyContent: 'flex-end', zIndex: 3 },
+  treeSprite: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, width: '100%', height: '100%' },
+  bossEyes: { position: 'absolute', left: '46%', bottom: '29%', flexDirection: 'row', gap: 12 },
+  bossEye: { width: 8, height: 6, backgroundColor: '#FFEAA5', borderRadius: 3, shadowColor: '#FFE259', shadowRadius: 8, shadowOpacity: 1 },
+  chopImpact: { position: 'absolute', left: '58%', bottom: '29%', width: 70, height: 70, alignItems: 'center', justifyContent: 'center', zIndex: 7 },
+  chopImpactCore: { width: 23, height: 23, borderRadius: 12, backgroundColor: '#FFF4B7', borderWidth: 5, borderColor: '#FFC45B', elevation: 6 },
+  chopImpactRay: { position: 'absolute', width: 66, height: 5, borderRadius: 3, backgroundColor: '#FFE18A' },
   treePressed: { transform: [{ scale: 0.97 }] }, treeDisabled: { opacity: 0.8 },
   canopy: { position: 'absolute', bottom: 115, width: 172, height: 128, zIndex: 2 },
   leafLeft: { position: 'absolute', left: 0, bottom: 0, width: 106, height: 91, borderRadius: 48, backgroundColor: '#438875', borderBottomWidth: 10, borderBottomColor: '#306657' },
@@ -956,12 +1002,12 @@ const styles = StyleSheet.create({
   treeKnot: { width: 19, height: 28, borderRadius: 14, borderWidth: 4, borderColor: '#73442F', backgroundColor: '#B97B4E' },
   trunk: { width: 54, height: 126, borderRadius: 14, backgroundColor: '#9B603F', borderLeftWidth: 7, borderLeftColor: '#BE8558', borderRightWidth: 6, borderRightColor: '#75492F', justifyContent: 'space-evenly', alignItems: 'center' },
   trunkLine: { height: 5, width: 33, borderRadius: 6, backgroundColor: '#73442F', opacity: 0.75 },
-  hitHint: { color: '#FFF1CC', fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 10 },
+  hitHint: { color: '#FFF7D8', fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 12, backgroundColor: '#112E2CA8', borderRadius: 9, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', textShadowColor: '#1B352C', textShadowRadius: 3 },
   damagePopup: { position: 'absolute', zIndex: 20, color: '#FFF7D6', fontSize: 25, fontWeight: '900', textShadowColor: '#6F2D22', textShadowOffset: { width: 2, height: 3 }, textShadowRadius: 1 },
   log: { position: 'absolute', width: 62, height: 58, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
   logEmoji: { fontSize: 36 }, logValue: { position: 'absolute', bottom: -2, color: '#FFF5D6', fontWeight: '900', fontSize: 11, backgroundColor: '#1B393A', borderRadius: 8, paddingHorizontal: 5, overflow: 'hidden' },
-  messageBox: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginVertical: 8 },
-  message: { color: '#D7E7DB', textAlign: 'center', fontSize: 13, fontWeight: '700' },
+  messageBox: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginVertical: 8, backgroundColor: '#0F3032B8', borderRadius: 12, paddingHorizontal: 8 },
+  message: { color: '#F0F4DE', textAlign: 'center', fontSize: 13, fontWeight: '700', textShadowColor: '#14382D', textShadowRadius: 3 },
   actions: { flexDirection: 'row', gap: 10, paddingBottom: 14 },
   restButton: { width: 78, borderRadius: 16, backgroundColor: '#355D59', alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   restIcon: { fontSize: 21 }, restText: { color: '#E9E6CC', fontSize: 11, fontWeight: '800', marginTop: 1 },

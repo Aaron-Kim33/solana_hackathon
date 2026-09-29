@@ -8,12 +8,12 @@ import { openGameStore } from './sqlite-store.mjs';
 import { initialProgress, xpFloor, treeHealth, questSteps } from '../src/game/progression.ts';
 
 const request = { requestId: 'persist_001', expectedRevision: 0, command: { type: 'fuse', tier: 'low' } };
-function fixture(t) {
+function fixture(t, roll = 0) {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-db-test-'));
   const path = join(folder, 'test.sqlite');
   const stores = [];
   t.after(() => { for (const s of stores) { try { s.close(); } catch {} } rmSync(folder, { recursive: true, force: true }); });
-  const open = () => { const s = openGameStore(path, { random: () => 0 }); stores.push(s); return s; };
+  const open = () => { const s = openGameStore(path, { random: () => roll }); stores.push(s); return s; };
   const store = open();
   store.createPlayer('alice'); store.createPlayer('bob');
   // Explicit test fixture seeding, not an exposed import/grant route.
@@ -141,4 +141,53 @@ test('wallet grant and its receipt roll back together on ledger failure', t => {
   db.exec('DROP TRIGGER fail_wallet_event');
   assert.equal(store.execute('alice', command).progress.coins, 20);
   db.close();
+});
+
+test('server wood draw and gem fusion spend once, return outcomes, and persist across restart', t => {
+  const { store, open, path } = fixture(t, 0.97);
+  const db = new DatabaseSync(path);
+  const seeded = { ...store.load('alice').progress, wood: 20000, harvested: 20000, gems: { low: 6, medium: 3, high: 3, supreme: 3, legendary: 0 } };
+  db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify(seeded), 'alice');
+  db.close();
+  const draw = { requestId: 'draw_high_01', expectedRevision: 0, command: { type: 'drawGem' } };
+  const drawn = store.execute('alice', draw);
+  assert.equal(drawn.progress.wood, 10000);
+  assert.equal(drawn.progress.gems.high, 4);
+  assert.deepEqual(store.execute('alice', draw), drawn);
+  assert.throws(() => store.execute('alice', { ...draw, requestId: 'draw_stale_02' }), /REVISION_CONFLICT/);
+  const fuse = { requestId: 'fuse_high_03', expectedRevision: 1, command: { type: 'fuse', tier: 'high' } };
+  const failed = store.execute('alice', fuse);
+  assert.equal(failed.progress.gems.high, 1);
+  assert.equal(failed.progress.gems.supreme, 3);
+  assert.deepEqual(store.execute('alice', fuse), failed);
+  assert.throws(() => store.execute('alice', { ...fuse, requestId: 'fuse_invalid_04', expectedRevision: 2 }), /ACTION_UNAVAILABLE/);
+  store.close();
+  const reopened = open();
+  assert.deepEqual(reopened.execute('alice', draw), drawn);
+  assert.equal(reopened.load('alice').progress.wood, 10000);
+  assert.equal(reopened.load('alice').progress.gems.high, 1);
+  assert.equal(reopened.audit('alice').length, 2);
+  assert.equal(reopened.load('bob').progress.wood, 0);
+});
+
+test('server fusion success and failed ledger write have no partial resource changes', t => {
+  const { store, path } = fixture(t);
+  const db = new DatabaseSync(path);
+  const progress = store.load('alice').progress;
+  db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify({ ...progress, wood: 10000, harvested: 10000 }), 'alice');
+  const fuse = { requestId: 'fuse_low_01', expectedRevision: 0, command: { type: 'fuse', tier: 'low' } };
+  const fused = store.execute('alice', fuse);
+  assert.equal(fused.progress.gems.low, 3);
+  assert.equal(fused.progress.gems.medium, 1);
+  db.exec("CREATE TRIGGER fail_gem_event BEFORE INSERT ON economy_events BEGIN SELECT RAISE(ABORT, 'INJECTED_FAILURE'); END;");
+  const draw = { requestId: 'draw_rollback_02', expectedRevision: 1, command: { type: 'drawGem' } };
+  assert.throws(() => store.execute('alice', draw), /INJECTED_FAILURE/);
+  assert.equal(store.load('alice').progress.wood, 10000);
+  assert.equal(store.load('alice').progress.gems.low, 3);
+  assert.equal(store.audit('alice').length, 1);
+  assert.equal(db.prepare('SELECT count(*) AS count FROM commands').get().count, 1);
+  db.exec('DROP TRIGGER fail_gem_event'); db.close();
+  const drawn = store.execute('alice', draw);
+  assert.equal(drawn.progress.wood, 0);
+  assert.equal(drawn.progress.gems.low, 4);
 });

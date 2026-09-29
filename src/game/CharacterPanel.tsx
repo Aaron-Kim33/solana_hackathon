@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BuffPanel } from './BuffPanel';
+import { ForesterSprite } from './ForesterSprite';
 import { GemPackages } from './DeepwoodContent';
 import { GemArt, GEM_COLORS } from './GemArt';
 import { createFusionAction } from './fusion-action';
@@ -93,8 +94,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       <View style={s.heading}><Text style={s.title}>{t('appearance')}</Text><Text style={s.level}>Lv. {level}</Text></View>
       <View style={s.stage}>
         <View style={s.halo} /><View style={s.floor} />
-        <View style={s.head}><View style={s.hat} /><View style={s.eye} /></View>
-        <View style={s.body}><View style={s.belt} /></View><View style={s.legLeft} /><View style={s.legRight} />
+        <ForesterSprite skin={progress.axeSkin} crowned={progress.wardenRewardsClaimed === 3} size={210} style={{ position: 'absolute', top: -4, left: '10%' }} />
         <Pressable accessibilityRole="button" accessibilityLabel={t('openAxe')} onPress={() => go('axe')} style={s.equipmentSlot}>
           <InventoryAxe skin={progress.axeSkin} crowned={progress.wardenRewardsClaimed === 3} /><Text style={s.slotCaption}>{t('axe')} ›</Text>
         </Pressable>
@@ -229,8 +229,6 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
         <Text style={s.text}>{t('gemHint')}</Text>
         {button(t('openGem'), () => useGem(selectedGem), progress.gems[selectedGem] < 1 || serverLocked)}
       </View>
-      {serverCommand && <Text style={s.muted}>{progress.language === 'ko' ? '서버 저장에서는 보상 보석의 개봉과 옵션 장착만 사용할 수 있어요. 합성·목재 뽑기는 아직 준비 중이에요.' : 'Server saves currently support opening earned gems and equipping options. Fusion and wood draws are not available yet.'}</Text>}
-      {!serverCommand && <>
       <View style={s.card}>
         <Text style={s.title}>{t('gemFusion')}</Text>
         <Text style={s.muted}>{t('fusionSelect')}</Text>
@@ -248,6 +246,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
             { text: t('cancel'), style: 'cancel', onPress: () => { fusionPromptOpen.current = false; } },
             { text: t('gemFusion'), onPress: () => {
               fusionPromptOpen.current = false;
+              if (serverCommand) { serverCommand({ type: 'fuse', tier: selectedGem }); return; }
               const result = execute();
               if (result.status === 'duplicate') return;
               if (result.status !== 'saved') { Alert.alert(t('gemFusion'), t(result.status === 'saveError' ? 'saveError' : 'fusionUnavailable')); return; }
@@ -256,7 +255,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
               Alert.alert(t(result.success ? 'fusionSuccess' : 'fusionFailed'), `${t(result.source)} ×${GEM_FUSION_COST} → ${t(result.target)} ×${result.success ? 1 : 0}\n${t(result.success ? 'fusionSuccessBody' : 'fusionFailedBody', GEM_FUSION_COST)}`);
             } },
           ], { cancelable: true, onDismiss: () => { fusionPromptOpen.current = false; } });
-        }, progress.gems[selectedGem] < GEM_FUSION_COST)}
+        }, progress.gems[selectedGem] < GEM_FUSION_COST || serverLocked)}
         </> : <Text style={s.bonus}>{t('fusionMaxTier')}</Text>}
         {fusionResult !== null && <View accessibilityLiveRegion="polite" style={{ gap: 6, paddingTop: 8 }}>
           <Text style={[s.title, { color: fusionResult.success ? '#B6E9CB' : '#FFBB9B' }]}>{t(fusionResult.success ? 'fusionSuccess' : 'fusionFailed')}</Text>
@@ -274,6 +273,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
           Alert.alert(t('woodGemDraw'), `${t('woodGemCost', WOOD_GEM_COST.toLocaleString())}\n${WOOD_GEM_ODDS.map(({ tier, percent }) => `${t(tier)} ${percent}%`).join(' · ')}\n\n${t('woodGemHint')}`, [
             { text: t('cancel'), style: 'cancel' },
             { text: t('woodGemDraw'), onPress: () => {
+              if (serverCommand) { serverCommand({ type: 'drawGem' }); return; }
               if (latest.current !== snapshot) return;
               const result = drawWoodGem(latest.current);
               if (!result) return;
@@ -282,13 +282,12 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
               Alert.alert(t('rewardClaimed'), t('woodGemReceived', t(result.tier)));
             } },
           ]);
-        }, progress.wood < WOOD_GEM_COST)}
+        }, progress.wood < WOOD_GEM_COST || serverLocked)}
       </View>
-      {__DEV__ && button(t('testGems'), () => {
+      {__DEV__ && !serverCommand && button(t('testGems'), () => {
         const next = grantTestGems(latest.current);
         if (commit(next)) latest.current = next;
       })}
-      </>}
     </>}
 
     {page === 'talents' && <>
