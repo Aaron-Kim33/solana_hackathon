@@ -170,6 +170,42 @@ test('server wood draw and gem fusion spend once, return outcomes, and persist a
   assert.equal(reopened.load('bob').progress.wood, 0);
 });
 
+test('every gem tier opens once per request and equipped options cannot be recovered by replacement', t => {
+  const { store, open, path } = fixture(t, 0.7);
+  const tiers = ['low', 'medium', 'high', 'supreme', 'legendary'];
+  const db = new DatabaseSync(path);
+  const seeded = store.load('alice').progress;
+  db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify({ ...seeded,
+    gems: Object.fromEntries(tiers.map(tier => [tier, 2])) }), 'alice');
+  db.close();
+  let revision = 0;
+  for (const tier of tiers) {
+    const before = store.load('alice').progress;
+    const command = { requestId: `open_${tier}_01`, expectedRevision: revision, command: { type: 'openGem', tier } };
+    const opened = store.execute('alice', command);
+    assert.equal(opened.progress.gems[tier], before.gems[tier] - 1);
+    assert.equal(opened.progress.inventory.filter(item => item === `${tier}:critDamage`).length, 1);
+    assert.deepEqual(store.execute('alice', command), opened);
+    assert.throws(() => store.execute('alice', { ...command, requestId: `stale_${tier}_01` }), /REVISION_CONFLICT/);
+    revision++;
+  }
+  const first = store.execute('alice', { requestId: 'equip_low_01', expectedRevision: revision++,
+    command: { type: 'equipOption', slot: 0, item: 'low:critDamage' } });
+  assert.equal(first.progress.slots[0], 'low:critDamage');
+  assert.equal(first.progress.inventory.includes('low:critDamage'), false);
+  const replaced = store.execute('alice', { requestId: 'equip_medium_01', expectedRevision: revision++,
+    command: { type: 'equipOption', slot: 0, item: 'medium:critDamage' } });
+  assert.equal(replaced.progress.slots[0], 'medium:critDamage');
+  assert.equal(replaced.progress.inventory.includes('low:critDamage'), false);
+  assert.equal(replaced.progress.inventory.includes('medium:critDamage'), false);
+  store.close();
+  const reopened = open();
+  assert.equal(reopened.load('alice').revision, revision);
+  assert.equal(reopened.load('alice').progress.inventory.length, 3);
+  assert.equal(reopened.audit('alice').length, revision);
+  assert.equal(reopened.load('bob').progress.gems.low, 6);
+});
+
 test('server fusion success and failed ledger write have no partial resource changes', t => {
   const { store, path } = fixture(t);
   const db = new DatabaseSync(path);
