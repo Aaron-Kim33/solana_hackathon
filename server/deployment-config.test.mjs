@@ -32,5 +32,5 @@ test('preview health identifies a preview server rather than a local-development
   t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(folder, { recursive: true, force: true }); });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const result = await fetch(`http://127.0.0.1:${server.address().port}/health`);
-  assert.deepEqual(await result.json(), { status: 'ok', mode: 'preview', identityOrigin: 'https://game.example.com' });
+  assert.deepEqual(await result.json(), { status: 'ok', mode: 'preview', identityOrigin: 'https://game.example.com', capabilities: ['trolley-v1', 'starter-wood-10'] });
 });

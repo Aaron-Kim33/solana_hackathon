@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
-import { initialProgress, parseProgress, hit, collect, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
+import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
 
@@ -64,7 +64,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     // Fresh records only. No API exists to import a mobile save as ranked progress.
     createPlayer(accountId, language = 'ko') {
       if (!['ko', 'en'].includes(language)) throw new Error('INVALID_LANGUAGE');
-      db.prepare('INSERT INTO players VALUES (?, 0, ?, ?)').run(id(accountId), 'server', JSON.stringify(initialProgress(language)));
+      db.prepare('INSERT INTO players VALUES (?, 0, ?, ?)').run(id(accountId), 'server', JSON.stringify(starterProgress(language)));
       return load(accountId);
     },
     load,
@@ -72,7 +72,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' ? r.command.dropId : r.command.type === 'hitBatch' ? r.command.count : null]);
+      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -110,7 +110,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           if (!next || next === before.progress) throw new Error('ACTION_UNAVAILABLE');
           after = { ...before, progress: next, revision: before.revision + 1,
             ...(c.type === 'acknowledgeWallet' ? { walletCoinRewardClaimed: true } : {}) };
-        } else if (['hit', 'hitBatch', 'collectDrop', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type)) {
+        } else if (['hit', 'hitBatch', 'collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           const play = db.prepare('SELECT * FROM play_state WHERE player_id = ?').get(accountId);
@@ -134,10 +134,26 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
               hitEvents.push({ hit: next.totalHits, damage: result.damage, critical: result.critical });
               if (result.manualWood > 0) drops.push({ id: randomUUID(), value: result.manualWood, expiresAt: at + 5000 });
             }
-          } else if (c.type === 'collectDrop') {
+          } else if (c.type === 'collectDrop' || c.type === 'loadTrolley') {
             const drop = drops.find(d => d.id === c.dropId);
             if (!drop) throw new Error('DROP_UNAVAILABLE');
-            next = collect(next, drop.value); drops = drops.filter(d => d.id !== c.dropId);
+            const updated = c.type === 'loadTrolley' ? loadTrolley(next, drop.value) : collect(next, drop.value);
+            if (updated === next) throw new Error('ACTION_UNAVAILABLE');
+            next = updated;
+            drops = drops.filter(d => d.id !== c.dropId);
+          } else if (c.type === 'loadTrolleyBatch') {
+            const selected = drops.filter(d => c.dropIds.includes(d.id));
+            if (selected.length !== c.dropIds.length) throw new Error('DROP_UNAVAILABLE');
+            const total = selected.reduce((sum, drop) => sum + drop.value, 0);
+            const updated = loadTrolley(next, total);
+            if (updated === next) throw new Error('ACTION_UNAVAILABLE');
+            next = updated;
+            const ids = new Set(c.dropIds);
+            drops = drops.filter(d => !ids.has(d.id));
+          } else if (c.type === 'collectTrolley') {
+            const dispatched = dispatchTrolley(next, time);
+            if (dispatched === next) throw new Error('ACTION_UNAVAILABLE');
+            next = dispatched;
           } else if (c.type !== 'recover') {
             const updated = c.type === 'regrow' ? regrow(next) : c.type === 'equipAxe' ? equipAxeSkin(next, c.skin) : upgrade(next, c.type === 'upgradeAxe' ? 'axe' : 'tree');
             if (updated === next) throw new Error('ACTION_UNAVAILABLE');
@@ -145,7 +161,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           }
           after = { ...before, progress: next, revision: before.revision + 1, drops, serverTime: time, ...(lastDamage === undefined ? {} : { lastDamage, hitEvents }) };
           db.prepare('INSERT INTO play_state (player_id,last_action,collect_until,drops,last_hit) VALUES (?,?,?,?,?) ON CONFLICT(player_id) DO UPDATE SET last_action=excluded.last_action,collect_until=excluded.collect_until,drops=excluded.drops,last_hit=excluded.last_hit')
-            .run(accountId, time, c.type === 'collectDrop' ? time + 250 : 0, JSON.stringify(drops), lastHit);
+            .run(accountId, time, ['collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(c.type) ? time + 250 : 0, JSON.stringify(drops), lastHit);
         } else after = createMemoryGameService(before, random).execute(r);
         // Validate the result before making all three writes visible atomically.
         parseProgress(JSON.stringify(after.progress));

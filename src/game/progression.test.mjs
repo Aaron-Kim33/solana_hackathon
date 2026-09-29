@@ -1,12 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { initialProgress, RECOVERY_MS, recover, hit, collect, upgrade, regrow, testRest, characterLevel, walletUnlocked, questSteps, parseProgress,
+import { initialProgress, starterProgress, STARTER_WOOD, RECOVERY_MS, recover, hit, collect, upgrade, regrow, testRest, characterLevel, walletUnlocked, questSteps, parseProgress,
   AXE_MAX, CHARACTER_MAX, TREE_MAX, combatStats, rollBaseDamage, woodYield, treeHealth, treeCost, treeAppearance, axeCost, axeUpgradeReady, xpFloor, equip, grantTestOptions } from './progression.ts';
 import { ko, en } from '../i18n.ts';
 import { claimFirstRecord, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs } from './progression.ts';
 import { awardXp, xpRequired } from './progression.ts';
 const normal = () => 0.5;
 const rolls = (...values) => () => values.shift() ?? 0.99;
+
+test('starter wood is spendable but does not count as harvested quest progress', () => {
+  const start = starterProgress('ko');
+  assert.equal(start.wood, STARTER_WOOD);
+  assert.equal(start.harvested, 0);
+  assert.equal(questSteps(start)[0], 'active');
+  assert.deepEqual(parseProgress(JSON.stringify(start)), start);
+  const collected = collect(start, 5);
+  assert.equal(collected.wood, 15);
+  assert.equal(collected.harvested, 5);
+  assert.equal(walletUnlocked(collected), false);
+});
 
 test('equipped axe upgrade indicator follows coins and disappears at the cap', () => {
   const state = initialProgress('en');

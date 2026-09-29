@@ -8,6 +8,8 @@ export function createLiveInputQueue() {
   return {
     get size() { return entries.length; },
     hasType(type: GameCommand['type']) { return entries.some(entry => entry.command.type === type); },
+    hasDrop(id: string) { return entries.some(entry => entry.command.type === 'collectDrop' || entry.command.type === 'loadTrolley' ? entry.command.dropId === id
+      : entry.command.type === 'loadTrolleyBatch' ? entry.command.dropIds.includes(id) : false); },
     clear() { entries.length = 0; },
     discardHits() {
       let discarded = 0;
@@ -17,7 +19,7 @@ export function createLiveInputQueue() {
       return discarded;
     },
     push(command: GameCommand, now: number): boolean {
-      if (command.type === 'collectDrop' && entries.some(e => e.command.type === 'collectDrop' && e.command.dropId === command.dropId)) return true;
+      if ((command.type === 'collectDrop' || command.type === 'loadTrolley') && this.hasDrop(command.dropId)) return true;
       if (entries.length >= INPUT_QUEUE_LIMIT) return false;
       entries.push({ command, at: now }); return true;
     },

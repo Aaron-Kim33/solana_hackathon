@@ -167,7 +167,7 @@ test('server wood draw and gem fusion spend once, return outcomes, and persist a
   assert.equal(reopened.load('alice').progress.wood, 10000);
   assert.equal(reopened.load('alice').progress.gems.high, 1);
   assert.equal(reopened.audit('alice').length, 2);
-  assert.equal(reopened.load('bob').progress.wood, 0);
+  assert.equal(reopened.load('bob').progress.wood, 10);
 });
 
 test('every gem tier opens once per request and equipped options cannot be recovered by replacement', t => {

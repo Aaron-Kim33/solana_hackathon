@@ -30,7 +30,7 @@ test('existing version-four play data gains a hit clock without losing saved dro
 });
 test('server hit produces expiring wood, idempotent collection and fatigue', t => {
   const f = fixture(t), r = f.command('hit'), first = f.store.execute('alice', r);
-  assert.equal(first.lastDamage, 3); assert.equal(first.progress.fatigue, 1); assert.equal(first.progress.wood, 0);
+  assert.equal(first.lastDamage, 3); assert.equal(first.progress.fatigue, 1); assert.equal(first.progress.wood, 10);
   assert.equal(first.drops[0].value, 2);
   assert.deepEqual(first.hitEvents, [{ hit: 1, damage: 3, critical: false }]);
   assert.deepEqual(f.store.execute('alice', r), first);
@@ -38,7 +38,7 @@ test('server hit produces expiring wood, idempotent collection and fatigue', t =
   f.advance(150);
   const pickup = f.command('collectDrop', { dropId: first.drops[0].id });
   const collected = f.store.execute('alice', pickup);
-  assert.equal(collected.progress.wood, 2); assert.equal(collected.drops.length, 0);
+  assert.equal(collected.progress.wood, 12); assert.equal(collected.progress.harvested, 2); assert.equal(collected.drops.length, 0);
   assert.equal(collected.hitEvents, undefined);
   assert.deepEqual(f.store.execute('alice', pickup), collected);
   f.advance(150); assert.throws(() => f.store.execute('alice', f.command('hit')), /ACTION_TOO_FAST/);
@@ -78,7 +78,7 @@ test('queued collection stays responsive while hits obey the two-second server c
   const first = send(0);
   q.push({ type: 'collectDrop', dropId: first.drops[0].id }, now);
   now += 150; f.advance(150);
-  assert.equal(send(now).progress.wood, 2);
+  assert.equal(send(now).progress.wood, 12);
   q.push({ type: 'hit' }, now);
   assert.equal(q.take(now, now + 250).wait, 250);
   now += 1850; f.advance(1850);
@@ -92,7 +92,7 @@ test('another account and exact-expiry collection fail; client rewards rejected'
   assert.throws(() => f.store.execute('alice', f.command('hit', { damage: 999 })), /INVALID_COMMAND/);
   f.advance(5000);
   assert.throws(() => f.store.execute('alice', f.command('collectDrop', { dropId })), /DROP_UNAVAILABLE/);
-  assert.equal(f.store.load('alice').progress.wood, 0);
+  assert.equal(f.store.load('alice').progress.wood, 10);
 });
 test('full fatigue blocks hits; only server elapsed time recovers it', t => {
   const f = fixture(t), db = new DatabaseSync(f.path), state = f.store.load('alice').progress;

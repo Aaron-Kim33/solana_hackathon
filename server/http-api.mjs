@@ -33,7 +33,7 @@ export function createApi({ path, origin, mode = 'local', readRecordTransaction 
       if (req.headers.origin && req.headers.origin !== origin) return send(403, { error: 'ORIGIN_DENIED' });
       const route = `${req.method} ${req.url}`;
       if (route === 'GET /health') return send(200, mode === 'preview'
-        ? { status: 'ok', mode: 'preview', identityOrigin: origin }
+        ? { status: 'ok', mode: 'preview', identityOrigin: origin, capabilities: ['trolley-v1', 'starter-wood-10'] }
         : { status: 'ok', mode: 'local-development' });
       if (route === 'POST /auth/challenge') { const b = await body(req, ['wallet']); return send(200, auth.challenge(b.wallet)); }
       if (route === 'POST /auth/login') { const b = await body(req, ['challengeId', 'signature']); return send(200, auth.login(b.challengeId, b.signature)); }

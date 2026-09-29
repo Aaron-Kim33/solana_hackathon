@@ -26,23 +26,28 @@ import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { PlayGuide } from './src/game/PlayGuide';
+import { TutorialNudge } from './src/game/TutorialNudge';
+import { nextTutorial, tutorialBit, type TutorialStep } from './src/game/tutorial';
+import { loadTutorialSeen, saveTutorialSeen, type TutorialScope } from './src/game/tutorial-storage';
+import { devQuestPreview } from './src/game/dev-quest-preview';
+import { loadDevWalletSkip, saveDevWalletSkip } from './src/game/dev-wallet-skip-storage';
+import { fitTrolleyLogs, sweptLogIds, type SweepBox, type SweepPoint } from './src/game/log-sweep';
 import { questShortcut } from './src/game/quest-shortcut';
 import { ServerLoginPanel, type ServerController } from './src/game/ServerLoginPanel';
-import { autoPickupUnlocked, autoPickupAvailable, autoPickupRemaining, startAutoPickup } from './src/game/auto-pickup';
 import { activeBoss, encounterHealth, defeatCoins } from './src/game/progression';
 import { questView } from './src/game/quest-view';
 import { GameMessage, Language, translate, TranslationKey } from './src/i18n';
-import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, upgrade, testRest,
+import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, loadTrolley, dispatchTrolley, upgrade, testRest,
   combatStats, treeAppearance, equip, grantTestOptions, OPTION_ITEMS, OptionId,
   claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
-  treeHealth, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
+  treeHealth, trolleyCapacity, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
 
 type Log = {
   id: number;
   left: number;
-  top: number;
+  bottom: number;
   value: number;
   expiresAt: number;
   bonusWood: number;
@@ -59,6 +64,7 @@ type DamagePopup = {
 
 const LOG_LIFETIME_MS = 5000;
 const HOLD_TO_CHOP_MS = 280;
+const floorPosition = (id: number) => ({ left: [31, 40, 49, 35, 44][id % 5], bottom: [7, 17, 8, 22, 13][id % 5] });
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -90,6 +96,28 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   });
   const [localProgress, setProgress] = useState(loaded.state);
   const progress = useMemo(() => online ? { ...server!.snapshot!.progress, language: uiLanguage } : localProgress, [online, server?.snapshot?.progress, uiLanguage, localProgress]);
+  const [devWalletSkip, setDevWalletSkip] = useState(() => __DEV__ && !online && loadDevWalletSkip());
+  const questProgress = useMemo(() => devQuestPreview(progress, __DEV__ && !online && devWalletSkip), [progress, online, devWalletSkip]);
+  const tutorialScope: TutorialScope = online ? 'server' : 'local';
+  const [tutorialSeenMask, setTutorialSeenMask] = useState(() => loadTutorialSeen(tutorialScope,
+    progress.totalHits > 0 || progress.harvested > 0 || progress.treeLevel > 1));
+  const tutorialSeenRef = useRef(tutorialSeenMask);
+  const [tutorialCoolUntil, setTutorialCoolUntil] = useState(0);
+  const completeTutorial = useCallback((step: TutorialStep) => {
+    const next = tutorialSeenRef.current | tutorialBit(step);
+    if (next === tutorialSeenRef.current) return;
+    tutorialSeenRef.current = next;
+    try { saveTutorialSeen(tutorialScope, next); } catch { /* Hints must never block play or game saves. */ }
+    setTutorialSeenMask(next);
+    setTutorialCoolUntil(Date.now() + 1400);
+  }, [tutorialScope]);
+  const replayTutorial = () => {
+    tutorialSeenRef.current = 0;
+    try { saveTutorialSeen(tutorialScope, 0); } catch { /* The current session can still replay. */ }
+    setTutorialSeenMask(0);
+    setTutorialCoolUntil(0);
+    setPanel(null);
+  };
   const progressRef = useRef(progress);
   progressRef.current = progress;
   const serverRef = useRef(server); serverRef.current = server;
@@ -116,18 +144,17 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const xpValue = level === CHARACTER_MAX ? 1 : progress.xp - xpFloor(level);
   const xpMax = level === CHARACTER_MAX ? 1 : xpRequired(level);
   const unlocked = walletUnlocked(progress);
-  const quests = useMemo(() => questSteps(progress), [progress]);
+  const quests = useMemo(() => questSteps(questProgress), [questProgress]);
   const visibleQuests = useMemo(() => questView(quests), [quests]);
-  const shortcut = questShortcut(progress, quests);
+  const shortcut = questShortcut(questProgress, quests);
   useEffect(() => {
     if (panel === 'quests') panelScroll.current?.scrollTo({ y: 0, animated: false });
   }, [panel, visibleQuests.active]);
   const [now, setNow] = useState(Date.now());
-  const pickupSeconds = Math.ceil(autoPickupRemaining(progress, now) / 1000);
-  const pickupCountdown = `${Math.floor(pickupSeconds / 60).toString().padStart(2, '0')}:${(pickupSeconds % 60).toString().padStart(2, '0')}`;
   const seconds = progress.recoveryAt === null ? 0 : Math.max(0, Math.ceil((progress.recoveryAt + RECOVERY_MS - now) / 1000));
   const countdown = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
   const [logs, setLogs] = useState<Log[]>([]);
+  const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil);
   const [damagePopups, setDamagePopups] = useState<DamagePopup[]>([]);
   const [autoPickupNotice, setAutoPickupNotice] = useState<{ id: number; value: number } | null>(null);
   const [mode, setMode] = useState<'chop' | 'collect'>('chop');
@@ -135,34 +162,20 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const t = (key: TranslationKey, value?: string | number) => translate(language, key, value);
   const shortcutLabel = shortcut?.key === 'nextQuest' ? t('nextQuest', t(shortcut.quest))
     : shortcut ? t(shortcut.key, 'value' in shortcut ? shortcut.value : undefined) : null;
-  const showAutoPickup = () => {
-    if (online) { unavailable(); return; }
-    const time = Date.now();
-    const current = recover(progressRef.current, time);
-    if (autoPickupRemaining(current, time) > 0) {
-      Alert.alert(t('autoPickup'), t('autoPickupInfo')); return;
-    }
-    if (!autoPickupAvailable(current, time)) {
-      Alert.alert(t('autoPickup'), t('autoPickupShop')); return;
-    }
-    if (current.fatigue >= 100) {
-      Alert.alert(t('autoPickup'), t('autoPickupRest')); return;
-    }
-    Alert.alert(t('autoPickup'), `${t('autoPickupInfo')}\n\n${t('fatigue')}: ${current.fatigue}%`, [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('autoPickupStart'), onPress: () => {
-        const time = Date.now();
-        const current = recover(progressRef.current, time);
-        const next = startAutoPickup(current, time);
-        if (next === current) { showAutoPickup(); return; }
-        if (commit(next)) setNow(time);
-        else Alert.alert(t('autoPickup'), t('saveError'));
-      } },
-    ]);
-  };
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
+  const [uiNotice, setUiNotice] = useState<GameMessage | null>(null);
+  useEffect(() => {
+    if (message.key !== 'coinsEarned') return;
+    const timer = setTimeout(() => setMessage(current => current === message ? { key: 'intro' } : current), 1800);
+    return () => clearTimeout(timer);
+  }, [message]);
+  useEffect(() => {
+    if (!uiNotice) return;
+    const timer = setTimeout(() => setUiNotice(current => current === uiNotice ? null : current), 2200);
+    return () => clearTimeout(timer);
+  }, [uiNotice]);
   const gameplayNotice = online
-    ? server!.notice || (server!.pending && !server!.busy
+    ? (uiNotice ? t(uiNotice.key, uiNotice.value) : server!.notice) || (server!.pending && !server!.busy
       ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.')
       : null)
     : message.key === 'intro' ? null : t(message.key, message.value);
@@ -176,6 +189,13 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const nextLogId = useRef(1);
   const nextEffectId = useRef(1);
   const activeLogs = useRef(new Map<number, Log>());
+  const forestRef = useRef<View>(null);
+  const storageRef = useRef<View>(null);
+  const forestBounds = useRef<SweepBox | null>(null);
+  const [forestWidth, setForestWidth] = useState(0);
+  const trolleyOffset = useRef(new Animated.Value(0)).current;
+  const sweptIds = useRef(new Set<number>());
+  const [sweepHighlight, setSweepHighlight] = useState<number[]>([]);
   const draggingLogs = useRef(new Set<number>());
   const holdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const holdingTree = useRef(false);
@@ -211,7 +231,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     for (const drop of snapshot.drops ?? []) {
       if (drop.expiresAt <= server.now) continue;
       const existing = prior.get(drop.id);
-      const log: Log = existing ?? { id: nextLogId.current++, serverId: drop.id, left: 10 + Math.floor(Math.random() * 70), top: 54 + Math.floor(Math.random() * 17), value: drop.value, bonusWood: 0, expiresAt: Date.now() + drop.expiresAt - server.now };
+      const id = existing?.id ?? nextLogId.current++;
+      const log: Log = existing ?? { id, serverId: drop.id, ...floorPosition(id), value: drop.value, bonusWood: 0, expiresAt: Date.now() + drop.expiresAt - server.now };
       activeLogs.current.set(log.id, log);
     }
     const currentLogs = [...activeLogs.current.values()];
@@ -255,18 +276,66 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const connection = serverRef.current;
       if (connection?.snapshot) {
         const recoveryAt = connection.snapshot.progress.recoveryAt;
-        if (recoveryAt !== null && connection.now >= recoveryAt + RECOVERY_MS && !connection.busy && !connection.pending && connection.queued === 0 && time - lastRecoveryCheck.current >= 5000) {
+        const trip = connection.snapshot.progress.trolleyTrip;
+        const trolleyDue = !!trip && (connection.now >= trip.returnsAt || (connection.now >= trip.arrivesAt && connection.snapshot.progress.trolleyWood > 0));
+        const fatigueDue = recoveryAt !== null && connection.now >= recoveryAt + RECOVERY_MS;
+        if ((trolleyDue || fatigueDue) && !connection.busy && !connection.pending && connection.queued === 0 && time - lastRecoveryCheck.current >= (trolleyDue ? 1000 : 5000)) {
           lastRecoveryCheck.current = time; connection.command({ type: 'recover' });
         }
         return;
       }
+      const beforeHarvested = progressRef.current.harvested;
       const next = recover(progressRef.current, time);
-      if (next !== progressRef.current) commit(next);
+      if (next !== progressRef.current && commit(next) && next.harvested > beforeHarvested)
+        setMessage(beforeHarvested < 20 && next.harvested >= 20 ? { key: 'firstHarvestReady' } : { key: 'collected', value: next.harvested - beforeHarvested });
     };
     const timer = setInterval(update, 1000);
     const subscription = AppState.addEventListener('change', (state) => { if (state === 'active') update(); else stopHoldingTree(); });
     return () => { clearInterval(timer); subscription.remove(); };
   }, [commit, stopHoldingTree]);
+
+  useEffect(() => {
+    trolleyOffset.stopAnimation();
+    const trip = progress.trolleyTrip;
+    const distance = Math.max(0, forestWidth - 144);
+    if (!trip || !distance) { trolleyOffset.setValue(0); return; }
+    const time = serverRef.current?.snapshot ? serverRef.current.now : Date.now();
+    if (time < trip.arrivesAt) {
+      const elapsed = Math.max(0, time - trip.departedAt);
+      trolleyOffset.setValue(-distance * Math.min(1, elapsed / (trip.arrivesAt - trip.departedAt)));
+      Animated.sequence([
+        Animated.timing(trolleyOffset, { toValue: -distance, duration: trip.arrivesAt - time, useNativeDriver: true }),
+        Animated.timing(trolleyOffset, { toValue: 0, duration: trip.returnsAt - trip.arrivesAt, useNativeDriver: true }),
+      ]).start();
+    } else if (time < trip.returnsAt) {
+      trolleyOffset.setValue(-distance * (trip.returnsAt - time) / (trip.returnsAt - trip.arrivesAt));
+      Animated.timing(trolleyOffset, { toValue: 0, duration: trip.returnsAt - time, useNativeDriver: true }).start();
+    } else trolleyOffset.setValue(0);
+    return () => trolleyOffset.stopAnimation();
+  }, [progress.trolleyTrip?.departedAt, forestWidth, trolleyOffset]);
+
+  useEffect(() => {
+    const trip = progress.trolleyTrip;
+    if (!trip) return;
+    const settle = () => {
+      const connection = serverRef.current;
+      if (connection?.snapshot) {
+        const current = connection.snapshot.progress.trolleyTrip;
+        if (current && !connection.busy && !connection.pending && connection.queued === 0 &&
+          (connection.now >= current.returnsAt || (connection.now >= current.arrivesAt && connection.snapshot.progress.trolleyWood > 0)))
+          connection.command({ type: 'recover' });
+        return;
+      }
+      const before = progressRef.current.harvested;
+      const next = recover(progressRef.current, Date.now());
+      if (next !== progressRef.current && commit(next) && next.harvested > before)
+        setMessage(before < 20 && next.harvested >= 20 ? { key: 'firstHarvestReady' } : { key: 'collected', value: next.harvested - before });
+    };
+    const clock = serverRef.current?.snapshot ? serverRef.current.now : Date.now();
+    const arrival = setTimeout(settle, Math.max(0, trip.arrivesAt - clock) + 30);
+    const returned = setTimeout(settle, Math.max(0, trip.returnsAt - clock) + 30);
+    return () => { clearTimeout(arrival); clearTimeout(returned); };
+  }, [progress.trolleyTrip?.departedAt, commit]);
 
   const swing = useRef(new Animated.Value(0)).current;
   const impact = useRef(new Animated.Value(0)).current;
@@ -301,11 +370,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const connection = serverRef.current;
     if (connection?.snapshot) {
       if (progressRef.current.fatigue >= 100 || !connection.hit()) return;
+      completeTutorial('chop');
       playChopMotion();
       return;
     }
     const now = Date.now();
-    const result = hit(progressRef.current, now, Math.random, autoPickupRemaining(progressRef.current, now) > 0);
+    const result = hit(progressRef.current, now);
     if (!result) {
       setMessage({ key: 'tired' });
       return;
@@ -313,13 +383,14 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
 
     const leveledUp = characterLevel(result.state.xp) > characterLevel(progressRef.current.xp);
     if (!commit(result.state)) return;
+    completeTutorial('chop');
     const damage = result.damage;
     playChopMotion();
     const effectId = nextEffectId.current++;
+    const logId = nextLogId.current++;
     const droppedLog: Log = {
-      id: nextLogId.current++,
-      left: 10 + Math.floor(Math.random() * 70),
-      top: 54 + Math.floor(Math.random() * 17),
+      id: logId,
+      ...floorPosition(logId),
       value: result.value,
       bonusWood: result.bonusWood,
       expiresAt: now + LOG_LIFETIME_MS,
@@ -350,7 +421,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const lang = result.state.language;
       Alert.alert(translate(lang, 'bossDefeated'), translate(lang, result.bossDefeated === 'first' ? 'bossFirstReward' : 'bossGateReward'));
     }
-  }, [commit, panel, playChopMotion]);
+  }, [commit, completeTutorial, panel, playChopMotion]);
 
   const chopRef = useRef(chop);
   chopRef.current = chop;
@@ -373,22 +444,93 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   }, [panel, mode, treeHp, fatigue, stopHoldingTree]);
   useEffect(() => () => stopHoldingTree(), [stopHoldingTree]);
 
-  const collectLog = useCallback((id: number) => {
-    const target = activeLogs.current.get(id);
-    if (!target) return;
-    if (serverRef.current?.snapshot) {
-      if (target.serverId) serverRef.current.command({ type: 'collectDrop', dropId: target.serverId });
+  const loadLogs = useCallback((ids: number[]) => {
+    if (progressRef.current.trolleyTrip) {
+      if (serverRef.current?.snapshot) setUiNotice({ key: 'trolleyBusy' });
+      else setMessage({ key: 'trolleyBusy' });
       return;
     }
-    if (Date.now() < target.expiresAt) {
-      const wasUnlocked = walletUnlocked(progressRef.current);
-      const next = collect(progressRef.current, target.value);
-      if (!commit(next)) return;
-      setMessage(wasUnlocked || !walletUnlocked(next) ? { key: 'collected', value: target.value } : { key: 'firstHarvestReady' });
+    const now = Date.now();
+    const candidates = ids.map(id => activeLogs.current.get(id)).filter((log): log is Log => !!log && log.expiresAt > now).slice(0, serverRef.current?.snapshot ? 8 : 16);
+    if (!candidates.length) return;
+    const targets = fitTrolleyLogs(candidates, trolleyCapacity(progressRef.current) - progressRef.current.trolleyWood);
+    if (!targets.length) {
+      if (serverRef.current?.snapshot) setUiNotice({ key: 'trolleyFull' });
+      else setMessage({ key: 'trolleyFull' });
+      return;
     }
+    if (serverRef.current?.snapshot) {
+      const dropIds = targets.map(log => log.serverId).filter((id): id is string => !!id);
+      if (dropIds.length === targets.length) {
+        setUiNotice(null);
+        if (serverRef.current.command({ type: 'loadTrolleyBatch', dropIds })) completeTutorial('sweep');
+      }
+      return;
+    }
+    const total = targets.reduce((sum, log) => sum + log.value, 0);
+    const next = loadTrolley(progressRef.current, total);
+    if (next === progressRef.current || !commit(next)) return;
+    completeTutorial('sweep');
+    setMessage({ key: 'trolleyLoaded', value: total });
+    for (const target of targets) activeLogs.current.delete(target.id);
+    setLogs([...activeLogs.current.values()]);
+  }, [commit, completeTutorial]);
+  const collectDirect = useCallback((id: number) => {
+    const target = activeLogs.current.get(id);
+    if (!target || target.expiresAt <= Date.now()) return;
+    if (serverRef.current?.snapshot) {
+      if (target.serverId && serverRef.current.command({ type: 'collectDrop', dropId: target.serverId })) completeTutorial('storage');
+      return;
+    }
+    const before = progressRef.current.harvested;
+    const next = collect(progressRef.current, target.value);
+    if (next === progressRef.current || !commit(next)) return;
+    completeTutorial('storage');
     activeLogs.current.delete(id);
     setLogs([...activeLogs.current.values()]);
-  }, [commit]);
+    setMessage(before < 20 && next.harvested >= 20 ? { key: 'firstHarvestReady' } : { key: 'collected', value: target.value });
+  }, [commit, completeTutorial]);
+  const beginSweep = useCallback(() => {
+    sweptIds.current.clear();
+    setSweepHighlight([]);
+    forestRef.current?.measureInWindow((x, y, width, height) => { forestBounds.current = { x, y, width, height }; });
+  }, []);
+  const extendSweep = useCallback((sourceId: number, from: SweepPoint, to: SweepPoint) => {
+    const box = forestBounds.current;
+    const touched = box ? sweptLogIds([...activeLogs.current.values()], box, from, to, Date.now()) : [];
+    if (activeLogs.current.has(sourceId)) touched.push(sourceId);
+    let changed = false;
+    for (const id of touched) if (!sweptIds.current.has(id)) { sweptIds.current.add(id); changed = true; }
+    if (changed) setSweepHighlight([...sweptIds.current]);
+  }, []);
+  const finishSweep = useCallback((sourceId: number, from: SweepPoint, to: SweepPoint) => {
+    extendSweep(sourceId, from, to);
+    const ids = [...sweptIds.current];
+    const storage = storageRef.current;
+    if (!storage) loadLogs(ids);
+    else storage.measureInWindow((x, y, width, height) => {
+      if (to.x >= x - 10 && to.x <= x + width + 10 && to.y >= y - 10 && to.y <= y + height + 10) collectDirect(sourceId);
+      else loadLogs(ids);
+    });
+    sweptIds.current.clear();
+    setSweepHighlight([]);
+  }, [collectDirect, extendSweep, loadLogs]);
+  const cancelSweep = useCallback(() => {
+    sweptIds.current.clear();
+    setSweepHighlight([]);
+  }, []);
+  const bankTrolley = () => {
+    if (draggingLogs.current.size > 0 || progressRef.current.trolleyWood <= 0 || progressRef.current.trolleyTrip) return;
+    stopHoldingTree();
+    if (serverRef.current?.snapshot) {
+      if (serverRef.current.command({ type: 'collectTrolley' })) completeTutorial('trolley');
+      return;
+    }
+    const next = dispatchTrolley(progressRef.current, Date.now());
+    if (next === progressRef.current || !commit(next)) return;
+    completeTutorial('trolley');
+    setMessage({ key: 'trolleyDeparted' });
+  };
 
   const rest = () => {
     if (__DEV__ && commit(testRest(progressRef.current, Date.now()))) setMessage({ key: 'rested' });
@@ -575,9 +717,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
         <Meter value={treeHp} max={maxTreeHp} color={boss ? '#E46B81' : '#C87348'} />
         {boss && <Text style={styles.recoveryText}>{t(boss === 'first' ? 'bossFirst' : 'bossGate')} · {t('bossHint')}</Text>}
-        <View style={[styles.progressLabelRow, styles.fatigueRow]}>
+        <View style={[styles.progressLabelRow, styles.fatigueRow, tutorialStep === 'fatigue' && styles.tutorialTargetGlow]}>
           <InfoLabel label={t('fatigue')} accessibilityLabel={t('infoAbout', t('fatigue'))}
-            onPress={() => Alert.alert(t('fatigue'), t('fatigueInfo'))} />
+            onPress={() => { if (tutorialStep === 'fatigue') completeTutorial('fatigue'); Alert.alert(t('fatigue'), t('fatigueInfo')); }} />
           <Text style={styles.progressValue}>{fatigue}%</Text>
         </View>
         <Meter value={fatigue} max={100} color={fatigue > 65 ? '#EC7A67' : '#EFC75E'} />
@@ -587,16 +729,14 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
       </View>
 
-      <View style={styles.forest}>
+      <View ref={forestRef} collapsable={false} style={styles.forest}
+        onLayout={event => {
+          setForestWidth(event.nativeEvent.layout.width);
+          forestRef.current?.measureInWindow((x, y, width, height) => { forestBounds.current = { x, y, width, height }; });
+        }}>
         {progress.treeLevel >= 101 && <Text pointerEvents="none" style={{ position: 'absolute', top: 8, alignSelf: 'center', color: '#CFB6F2', fontWeight: '800' }}>{t('secondForest')}</Text>}
-        {autoPickupUnlocked(progress) && <Pressable accessibilityRole="button"
-          accessibilityLabel={t('autoPickup')} onPress={showAutoPickup}
-          style={({ pressed }) => [styles.autoPickupButton, pickupSeconds > 0 && { borderColor: '#FFE19C' }, pressed && { opacity: 0.7 }]}>
-          <Text style={styles.walletText}>{t('autoPickup')}</Text>
-          {pickupSeconds > 0 && <Text style={styles.walletText}>{pickupCountdown}</Text>}
-        </Pressable>}
         <Pressable accessibilityRole="button" accessibilityLabel={t('openAxe')} hitSlop={8}
-          onPress={() => setPanel('axe')} style={({ pressed }) => [styles.forestAxe, pressed && { opacity: 0.65 }]}>
+          onPress={() => { if (tutorialStep === 'axe') completeTutorial('axe'); setPanel('axe'); }} style={({ pressed }) => [styles.forestAxe, tutorialStep === 'axe' && styles.tutorialTargetGlow, pressed && { opacity: 0.65 }]}>
           <AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} />
           {axeUpgradeReady(progress) && <View pointerEvents="none" style={styles.forestAxeUpgradeDot} />}
         </Pressable>
@@ -604,30 +744,31 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestGem, pressed && { opacity: 0.65 }]}>
           <GemArt tier="high" size={44} />
         </Pressable>
-        {treeHp > 0 && <ForesterSprite motion={swing} skin={progress.axeSkin}
-          crowned={progress.wardenRewardsClaimed === 3} size={155} style={styles.forestCharacter} />}
+        <View pointerEvents="box-none" style={styles.forestCharacter}>
+          <ForesterSprite motion={swing} skin={progress.axeSkin}
+            crowned={progress.wardenRewardsClaimed === 3} size={155} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t('tutorialCharacter')} hitSlop={3}
+            onPress={() => { if (tutorialStep === 'character') completeTutorial('character'); setPanel('character'); }}
+            style={[styles.characterFaceTarget, tutorialStep === 'character' && styles.characterFaceHint]} />
+        </View>
         {treeHp > 0 && isHolding && <Animated.View pointerEvents="none" style={[styles.holdGlow, {
           opacity: holdPulse.interpolate({ inputRange: [0, 1], outputRange: [0.18, 0.48] }),
           transform: [{ scale: holdPulse.interpolate({ inputRange: [0, 1], outputRange: [0.82, 1.18] }) }],
         }]} />}
-        {treeHp > 0 ? <Animated.View style={[styles.treeButton, { transform: [{ translateX: shake }] }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={t('chop')}
-          accessibilityHint={t(firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}
-          disabled={mode === 'collect'}
-          delayLongPress={HOLD_TO_CHOP_MS}
-          onLongPress={startHoldingTree}
-          onPressOut={stopHoldingTree}
-          style={({ pressed }) => [styles.treeTouch, pressed && styles.treePressed, mode === 'collect' && styles.treeDisabled]}
-        >
-          <Image source={require('./assets/forest/tree.png')} style={styles.treeSprite} resizeMode="contain" />
-          {boss && <View pointerEvents="none" style={styles.bossEyes}><View style={styles.bossEye} /><View style={styles.bossEye} /></View>}
-          <Text style={styles.hitHint}>{t(mode === 'collect' ? 'collecting' : firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}</Text>
-        </Pressable>
-        </Animated.View> : <View style={styles.felledTree}>
+        {treeHp > 0 ? <>
+          <Animated.View pointerEvents="none" style={[styles.treeVisual, { transform: [{ translateX: shake }] }]}>
+            <Image source={require('./assets/forest/tree.png')} style={styles.treeSprite} resizeMode="contain" />
+            {boss && <View style={styles.bossEyes}><View style={styles.bossEye} /><View style={styles.bossEye} /></View>}
+            <Text style={styles.hitHint}>{t(mode === 'collect' ? 'collecting' : firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}</Text>
+          </Animated.View>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('chop')}
+            accessibilityHint={t(firstRecordBonusActive(progress) ? 'holdFast' : 'tap')}
+            disabled={mode === 'collect'} delayLongPress={HOLD_TO_CHOP_MS}
+            onLongPress={startHoldingTree} onPressOut={stopHoldingTree}
+            style={styles.treeHitTarget} />
+        </> : <View style={styles.felledTree}>
           <View style={styles.stump}><View style={styles.stumpRing} /></View>
-          <Pressable accessibilityRole="button" onPress={() => setPanel('tree')} style={styles.upgradeMarker}>
+          <Pressable accessibilityRole="button" onPress={() => { if (tutorialStep === 'tree') completeTutorial('tree'); setPanel('tree'); }} style={[styles.upgradeMarker, tutorialStep === 'tree' && styles.tutorialTargetGlow]}>
             <Text style={styles.markerText}>{t(progress.treeLevel >= TREE_MAX ? 'endingTitle' : 'treeUpgradeMarker')}</Text>
           </Pressable>
         </View>}
@@ -644,14 +785,35 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <FloatingDamage key={popup.id} popup={popup} />
         ))}
         {autoPickupNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={{ position: 'absolute', bottom: 12, alignSelf: 'center', color: '#FFE19C', backgroundColor: '#153936', borderRadius: 12, padding: 8, fontWeight: '800' }}>{t('autoCollected', autoPickupNotice.value)}</Text>}
+        <View ref={storageRef} collapsable={false} style={[styles.storageTarget, tutorialStep === 'storage' && styles.tutorialTargetGlow]}>
+          <View pointerEvents="none" style={styles.storageArt}>
+            <View style={styles.storageTop} />
+            <View style={styles.storageBody}><View style={styles.storagePlank} /><View style={styles.storagePlank} /></View>
+          </View>
+          <Text pointerEvents="none" style={styles.storageLabel}>{t('storage')}</Text>
+        </View>
+        <Animated.View style={[styles.trolleyTarget, { transform: [{ translateX: trolleyOffset }] }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${t('trolleyCargo', `${progress.trolleyWood.toLocaleString(language)} / ${trolleyCapacity(progress).toLocaleString(language)}`)} · ${t('trolleyBank')}`}
+            disabled={progress.trolleyWood <= 0 || !!progress.trolleyTrip || mode === 'collect' || (online && !server!.trolleySupported)} onPress={bankTrolley}
+            style={({ pressed }) => [styles.trolleyButton, tutorialStep === 'trolley' && styles.tutorialTargetGlow, pressed && { opacity: 0.75 }]}>
+            <View pointerEvents="none" style={styles.trolleyArt}>
+              {progress.trolleyWood > 0 && <Text style={styles.trolleyWoodArt}>🪵</Text>}
+              <View style={styles.trolleyBed} />
+              <View style={styles.trolleyWheelLeft} /><View style={styles.trolleyWheelRight} />
+            </View>
+            <Text style={styles.trolleyCount}>{online && !server!.trolleySupported
+              ? (language === 'ko' ? '서버 업데이트 필요' : 'Server update needed')
+              : progress.trolleyTrip ? t('trolleyMoving') : t('trolleyCargo', `${hudAmount(progress.trolleyWood)} / ${hudAmount(trolleyCapacity(progress))}`)}</Text>
+            {progress.trolleyWood > 0 && !progress.trolleyTrip && <Text style={styles.trolleyHint}>{t('trolleyBank')}</Text>}
+          </Pressable>
+        </Animated.View>
         {logs.map((log) => (
-          <DraggableLog key={log.id} log={log} label={t('pickup', log.value)} onCollected={collectLog} onDraggingChange={syncDragMode} />
+          <DraggableLog key={log.id} log={log} label={t('pickup', log.value)} highlighted={sweepHighlight.includes(log.id)}
+            onSweepStart={beginSweep} onSweepMove={extendSweep} onSweepEnd={finishSweep} onSweepCancel={cancelSweep} onDraggingChange={syncDragMode} />
         ))}
+        {!!gameplayNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={styles.gameplayToast}>{gameplayNotice}</Text>}
+        {tutorialStep && <TutorialNudge step={tutorialStep} language={language} onDismiss={() => completeTutorial(tutorialStep)} />}
       </View>
-
-      {!!gameplayNotice && <View style={styles.messageBox}>
-        <Text accessibilityLiveRegion="polite" style={styles.message}>{gameplayNotice}</Text>
-      </View>}
 
       <View style={styles.actions}>
         {__DEV__ && <Pressable onPress={rest} style={styles.restButton}>
@@ -684,6 +846,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       {panel === 'menu' && <View style={styles.achievement}>
         {server?.controls}
         <Pressable accessibilityRole="button" onPress={() => setPanel('guide')} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '플레이 가이드' : 'How to play'}</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={replayTutorial} style={styles.languageButton}><Text style={styles.statValue}>{t('tutorialReplay')}</Text></Pressable>
+        {__DEV__ && !online && devWalletSkip && <Pressable accessibilityRole="button" onPress={() => {
+          try { saveDevWalletSkip(false); setDevWalletSkip(false); }
+          catch { Alert.alert(language === 'ko' ? '저장 실패' : 'Save failed'); }
+        }} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '개발용 지갑 퀘스트 건너뛰기 해제' : 'Undo development wallet quest skip'}</Text></Pressable>}
         <Pressable onPress={() => setPanel('quests')} style={styles.languageButton}><Text style={styles.statValue}>{t('questTitle')}</Text></Pressable>
         <Pressable onPress={() => setPanel('character')} style={styles.languageButton}><Text style={styles.statValue}>{t('character')}</Text></Pressable>
         <View style={styles.languageRow}>
@@ -695,6 +862,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       {panel === 'guide' && <PlayGuide progress={progress} saveMode={online ? 'server' : server ? 'practice' : 'local'} onQuests={() => setPanel('quests')} onGems={() => setPanel('gems')} />}
       {panel === 'quests' && <View>
         {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit} />}
+      {__DEV__ && !online && devWalletSkip && <Text style={styles.progressLabel}>
+        {language === 'ko' ? '개발 테스트: 지갑 퀘스트 화면만 건너뜀 · 실제 연결/서버 저장/기록은 미완료' : 'Development test: wallet quest display skipped only · wallet, server save and record are incomplete'}
+      </Text>}
       {online && progress.walletCompleted && server!.snapshot?.walletCoinRewardClaimed === false && <View style={[styles.questRow, styles.questActive]}>
         <Text style={styles.walletText}>{t('walletCoinLegacy')}</Text>
         <Text style={styles.progressLabel}>{t('walletCoinReward')}</Text>
@@ -754,6 +924,13 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               <Pressable accessibilityRole="button" style={styles.languageButton} onPress={() => setPanel('character')}><Text style={styles.walletText}>{t('character')} ›</Text></Pressable>
             </>}
             {quests[index] === 'active' && index === 1 && <Pressable onPress={handleWalletConnect} disabled={isConnectingWallet || (server?.busy ?? false)} style={styles.languageButton}><Text style={styles.walletText}>{t(server && !online ? 'connectServerSave' : isConnectingWallet ? 'connecting' : 'wallet')}</Text></Pressable>}
+            {__DEV__ && !online && quests[index] === 'active' && index === 1 && <Pressable accessibilityRole="button"
+              onPress={() => {
+                try { saveDevWalletSkip(true); setDevWalletSkip(true); }
+                catch { Alert.alert(language === 'ko' ? '저장 실패' : 'Save failed', language === 'ko' ? '개발용 건너뛰기를 저장하지 못했어요.' : 'Could not save the development-only skip.'); }
+              }} style={styles.languageButton}>
+              <Text style={styles.walletText}>{language === 'ko' ? '개발 테스트: 지갑 퀘스트만 건너뛰기' : 'Development test: skip wallet quest only'}</Text>
+            </Pressable>}
             {quests[index] === 'active' && index === 1 && online && <Text style={styles.progressLabel}>{t('walletCoinReward')}</Text>}
             {quests[index] === 'active' && index === 2 && <Pressable
               onPress={() => setPanel('character')} style={styles.languageButton}>
@@ -850,17 +1027,22 @@ function FloatingDamage({ popup }: { popup: DamagePopup }) {
   }]}>{popup.critical ? '✦ ' : ''}−{popup.value}</Animated.Text>;
 }
 
-const DraggableLog = memo(function DraggableLog({ log, label, onCollected, onDraggingChange }: {
+const DraggableLog = memo(function DraggableLog({ log, label, highlighted, onSweepStart, onSweepMove, onSweepEnd, onSweepCancel, onDraggingChange }: {
   log: Log;
   label: string;
-  onCollected: (id: number) => void;
+  highlighted: boolean;
+  onSweepStart: () => void;
+  onSweepMove: (id: number, from: SweepPoint, to: SweepPoint) => void;
+  onSweepEnd: (id: number, from: SweepPoint, to: SweepPoint) => void;
+  onSweepCancel: () => void;
   onDraggingChange: (id: number, dragging: boolean) => void;
 }) {
   const pan = useRef(new Animated.ValueXY()).current;
   const fall = useRef(new Animated.Value(-65)).current;
   const life = useRef(new Animated.Value(1)).current;
-  const handlers = useRef({ onCollected, onDraggingChange });
-  handlers.current = { onCollected, onDraggingChange };
+  const lastPoint = useRef<SweepPoint>({ x: 0, y: 0 });
+  const handlers = useRef({ onSweepStart, onSweepMove, onSweepEnd, onSweepCancel, onDraggingChange });
+  handlers.current = { onSweepStart, onSweepMove, onSweepEnd, onSweepCancel, onDraggingChange };
   useEffect(() => {
     const drop = Animated.spring(fall, { toValue: 0, speed: 16, bounciness: 9, useNativeDriver: true });
     const expiry = Animated.timing(life, { toValue: 0, duration: Math.max(0, log.expiresAt - Date.now()), useNativeDriver: true });
@@ -872,28 +1054,33 @@ const DraggableLog = memo(function DraggableLog({ log, label, onCollected, onDra
   const responder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
-    onPanResponderGrant: () => {
+    onPanResponderGrant: (event, gesture) => {
       pan.stopAnimation();
       pan.setValue({ x: 0, y: 0 });
+      lastPoint.current = { x: event.nativeEvent.pageX ?? gesture.x0, y: event.nativeEvent.pageY ?? gesture.y0 };
+      handlers.current.onSweepStart();
       handlers.current.onDraggingChange(log.id, true);
     },
-    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+    onPanResponderMove: (_, gesture) => {
+      pan.setValue({ x: gesture.dx, y: gesture.dy });
+      const next = { x: gesture.moveX, y: gesture.moveY };
+      if (Math.hypot(gesture.dx, gesture.dy) > 12) handlers.current.onSweepMove(log.id, lastPoint.current, next);
+      lastPoint.current = next;
+    },
     onPanResponderRelease: (_, gesture) => {
       handlers.current.onDraggingChange(log.id, false);
-      if (Math.hypot(gesture.dx, gesture.dy) > 12) {
-        handlers.current.onCollected(log.id);
-        Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
-      }
-      else Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
+      if (Math.hypot(gesture.dx, gesture.dy) > 12) handlers.current.onSweepEnd(log.id, lastPoint.current, { x: gesture.moveX, y: gesture.moveY });
+      Animated.spring(pan, { toValue: { x: 0, y: 0 }, useNativeDriver: false }).start();
     },
     onPanResponderTerminationRequest: () => false,
     onPanResponderTerminate: () => {
       handlers.current.onDraggingChange(log.id, false);
+      handlers.current.onSweepCancel();
       pan.setValue({ x: 0, y: 0 });
     },
   })).current;
   return <Animated.View {...responder.panHandlers} accessibilityLabel={label}
-    style={[styles.log, { left: `${log.left}%`, top: `${log.top}%`, transform: pan.getTranslateTransform() }]}>
+    style={[styles.log, highlighted && styles.logSwept, { left: `${log.left}%`, bottom: log.bottom, transform: pan.getTranslateTransform() }]}>
     <Animated.View pointerEvents="none" style={{ alignItems: 'center', transform: [{ translateY: fall }], opacity: life.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 1] }) }}>
       <Text style={styles.logEmoji}>🪵</Text><Text style={[styles.logValue, log.bonusWood > 0 && { backgroundColor: '#735521', color: '#FFF0A0' }]}>{log.bonusWood > 0 ? '✦ ' : ''}+{log.value}</Text>
       <Animated.View style={[styles.logTimer, { transform: [{ scaleX: life }] }]} />
@@ -902,6 +1089,7 @@ const DraggableLog = memo(function DraggableLog({ log, label, onCollected, onDra
 });
 
 const styles = StyleSheet.create({
+  tutorialTargetGlow: { borderColor: '#FFE494', borderWidth: 2, borderRadius: 16, backgroundColor: '#FFE4941A' },
   axeArt: { width: 60, height: 95, alignItems: 'center', justifyContent: 'flex-end' },
   axeHandle: { width: 10, height: 80, borderRadius: 5, backgroundColor: '#BE8558', transform: [{ rotate: '20deg' }], marginBottom: 4 },
   axeBlade: { position: 'absolute', top: 0, left: -20, width: 44, height: 30, borderRadius: 7, backgroundColor: '#C3D9D3', borderLeftWidth: 7, borderLeftColor: '#F0F4E5' },
@@ -910,11 +1098,26 @@ const styles = StyleSheet.create({
   forestAxe: { position: 'absolute', top: 12, left: 18, zIndex: 8, transform: [{ scale: 0.7 }] },
   forestAxeUpgradeDot: { position: 'absolute', top: 12, right: -5, width: 14, height: 14,
     borderRadius: 7, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
-  forestCharacter: { position: 'absolute', left: '25%', bottom: 18, zIndex: 5 },
+  forestCharacter: { position: 'absolute', left: '25%', bottom: 18, width: 155, height: 155, zIndex: 5 },
+  characterFaceTarget: { position: 'absolute', left: 46, top: 26, width: 67, height: 59, borderRadius: 30 },
+  characterFaceHint: { borderWidth: 2, borderColor: '#FFE494', backgroundColor: '#FFE4941A' },
   holdGlow: { position: 'absolute', left: '49%', bottom: '25%', width: 92, height: 92, borderRadius: 46, backgroundColor: '#FFF4A3', zIndex: 4 },
   forestGem: { position: 'absolute', top: 104, left: 24, zIndex: 8, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  autoPickupButton: { position: 'absolute', bottom: 42, left: 8, zIndex: 4, minHeight: 44,
-    paddingHorizontal: 8, paddingVertical: 4, gap: 2, borderRadius: 10, backgroundColor: '#214743', borderWidth: 1, borderColor: '#91D3B1', alignItems: 'center', justifyContent: 'center' },
+  storageTarget: { position: 'absolute', left: 10, bottom: 3, zIndex: 8, width: 116, height: 95, alignItems: 'center', justifyContent: 'flex-end' },
+  storageArt: { width: 85, height: 57, alignItems: 'center', justifyContent: 'flex-end' },
+  storageTop: { position: 'absolute', top: 3, width: 84, height: 16, borderRadius: 5, backgroundColor: '#C28A4D', borderWidth: 3, borderColor: '#EDC079', zIndex: 1 },
+  storageBody: { width: 75, height: 43, borderRadius: 6, backgroundColor: '#8E5D37', borderWidth: 3, borderColor: '#D9A666', flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
+  storagePlank: { width: 5, height: 33, borderRadius: 2, backgroundColor: '#D9A666' },
+  storageLabel: { color: '#FFF2D1', fontSize: 12, fontWeight: '900', backgroundColor: '#17352EC9', borderRadius: 7, overflow: 'hidden', paddingHorizontal: 6, marginTop: 2 },
+  trolleyTarget: { position: 'absolute', right: 15, bottom: 3, zIndex: 9, width: 122, height: 92 },
+  trolleyButton: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
+  trolleyArt: { width: 88, height: 48, alignItems: 'center', justifyContent: 'flex-end' },
+  trolleyWoodArt: { position: 'absolute', top: -4, fontSize: 24, zIndex: 1 },
+  trolleyBed: { width: 78, height: 27, borderRadius: 5, backgroundColor: '#A96A3D', borderWidth: 3, borderColor: '#E1AF6A', borderTopWidth: 5 },
+  trolleyWheelLeft: { position: 'absolute', bottom: -3, left: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
+  trolleyWheelRight: { position: 'absolute', bottom: -3, right: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
+  trolleyCount: { color: '#FFF2D1', fontSize: 11, fontWeight: '900', textAlign: 'center', backgroundColor: '#17352EC9', borderRadius: 7, overflow: 'hidden', paddingHorizontal: 5, marginTop: 2 },
+  trolleyHint: { color: '#FFDF75', fontSize: 10, fontWeight: '800', textAlign: 'center', textShadowColor: '#17352E', textShadowRadius: 3 },
   rewardPreview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatarAxePosition: { position: 'absolute', top: 72, marginLeft: 125 },
   container: { flex: 1, backgroundColor: '#102D32', paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0 },
@@ -956,7 +1159,6 @@ const styles = StyleSheet.create({
   languageButton: { paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#25484A', borderRadius: 12 },
   languageSelected: { backgroundColor: '#48736B' },
   achievement: { gap: 10, padding: 14, borderRadius: 16, backgroundColor: '#18383B', marginTop: 8 },
-  treeTouch: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'flex-end' },
   logTimer: { height: 3, width: 36, backgroundColor: '#F5C76B', marginTop: 10, borderRadius: 2 },
   header: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between', paddingTop: 14 },
   eyebrow: { color: '#88ACA5', fontSize: 10, fontWeight: '700', letterSpacing: 1.5 },
@@ -986,14 +1188,14 @@ const styles = StyleSheet.create({
   meter: { height: 8, backgroundColor: '#25484A', borderRadius: 8, overflow: 'hidden' },
   meterFill: { height: '100%', borderRadius: 8 },
   forest: { flex: 1, marginTop: 2, marginHorizontal: -20, overflow: 'hidden', minHeight: 0, position: 'relative' },
-  treeButton: { position: 'absolute', left: '21%', top: 0, width: '79%', height: '100%', alignItems: 'center', justifyContent: 'flex-end', zIndex: 3 },
+  treeVisual: { position: 'absolute', left: '21%', top: 0, width: '79%', height: '100%', zIndex: 3 },
+  treeHitTarget: { position: 'absolute', left: '51%', top: '9%', width: '47%', height: '84%', zIndex: 4 },
   treeSprite: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, width: '100%', height: '100%' },
   bossEyes: { position: 'absolute', left: '46%', bottom: '29%', flexDirection: 'row', gap: 12 },
   bossEye: { width: 8, height: 6, backgroundColor: '#FFEAA5', borderRadius: 3, shadowColor: '#FFE259', shadowRadius: 8, shadowOpacity: 1 },
   chopImpact: { position: 'absolute', left: '58%', bottom: '29%', width: 70, height: 70, alignItems: 'center', justifyContent: 'center', zIndex: 7 },
   chopImpactCore: { width: 23, height: 23, borderRadius: 12, backgroundColor: '#FFF4B7', borderWidth: 5, borderColor: '#FFC45B', elevation: 6 },
   chopImpactRay: { position: 'absolute', width: 66, height: 5, borderRadius: 3, backgroundColor: '#FFE18A' },
-  treePressed: { transform: [{ scale: 0.97 }] }, treeDisabled: { opacity: 0.8 },
   canopy: { position: 'absolute', bottom: 115, width: 172, height: 128, zIndex: 2 },
   leafLeft: { position: 'absolute', left: 0, bottom: 0, width: 106, height: 91, borderRadius: 48, backgroundColor: '#438875', borderBottomWidth: 10, borderBottomColor: '#306657' },
   leafRight: { position: 'absolute', right: 0, bottom: 0, width: 109, height: 100, borderRadius: 50, backgroundColor: '#64A381', borderBottomWidth: 10, borderBottomColor: '#438875' },
@@ -1002,12 +1204,14 @@ const styles = StyleSheet.create({
   treeKnot: { width: 19, height: 28, borderRadius: 14, borderWidth: 4, borderColor: '#73442F', backgroundColor: '#B97B4E' },
   trunk: { width: 54, height: 126, borderRadius: 14, backgroundColor: '#9B603F', borderLeftWidth: 7, borderLeftColor: '#BE8558', borderRightWidth: 6, borderRightColor: '#75492F', justifyContent: 'space-evenly', alignItems: 'center' },
   trunkLine: { height: 5, width: 33, borderRadius: 6, backgroundColor: '#73442F', opacity: 0.75 },
-  hitHint: { color: '#FFF7D8', fontSize: 12, fontWeight: '900', letterSpacing: 2, marginBottom: 12, backgroundColor: '#112E2CA8', borderRadius: 9, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', textShadowColor: '#1B352C', textShadowRadius: 3 },
+  hitHint: { position: 'absolute', bottom: 12, left: '14%', color: '#FFF7D8', fontSize: 12, fontWeight: '900', letterSpacing: 2, backgroundColor: '#112E2CA8', borderRadius: 9, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden', textShadowColor: '#1B352C', textShadowRadius: 3 },
   damagePopup: { position: 'absolute', zIndex: 20, color: '#FFF7D6', fontSize: 25, fontWeight: '900', textShadowColor: '#6F2D22', textShadowOffset: { width: 2, height: 3 }, textShadowRadius: 1 },
   log: { position: 'absolute', width: 62, height: 58, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  logSwept: { opacity: 0.4 },
   logEmoji: { fontSize: 36 }, logValue: { position: 'absolute', bottom: -2, color: '#FFF5D6', fontWeight: '900', fontSize: 11, backgroundColor: '#1B393A', borderRadius: 8, paddingHorizontal: 5, overflow: 'hidden' },
-  messageBox: { minHeight: 48, justifyContent: 'center', alignItems: 'center', marginVertical: 8, backgroundColor: '#0F3032B8', borderRadius: 12, paddingHorizontal: 8 },
-  message: { color: '#F0F4DE', textAlign: 'center', fontSize: 13, fontWeight: '700', textShadowColor: '#14382D', textShadowRadius: 3 },
+  gameplayToast: { position: 'absolute', top: 10, alignSelf: 'center', maxWidth: '86%', zIndex: 21,
+    color: '#FFF7D8', textAlign: 'center', fontSize: 14, fontWeight: '900',
+    textShadowColor: '#102D27', textShadowOffset: { width: 1, height: 2 }, textShadowRadius: 5 },
   actions: { flexDirection: 'row', gap: 10, paddingBottom: 14 },
   restButton: { width: 78, borderRadius: 16, backgroundColor: '#355D59', alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   restIcon: { fontSize: 21 }, restText: { color: '#E9E6CC', fontSize: 11, fontWeight: '800', marginTop: 1 },

@@ -1,7 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { translate, type TranslationKey } from '../i18n';
 import { characterLevel, firstRecordBonusActive, masteryBonus, optionInfo, talentValue, type Progress, type MasteryAxe } from './progression';
-import { autoPickupRemaining } from './auto-pickup';
 import { formatNumber } from './format-number';
 
 export function BuffPanel({ progress }: { progress: Progress }) {
@@ -30,11 +29,9 @@ export function BuffPanel({ progress }: { progress: Progress }) {
     const option = optionInfo(id);
     add(`${t('buffSlot')} · ${t('slot', index + 1)} · ${t(option.tier ?? 'legacyOption')}`, `${t(option.kind)} +${formatNumber(option.value)}${option.kind === 'damage' ? '' : '%p'}`);
   });
-  const remaining = Math.ceil(autoPickupRemaining(progress, Date.now()) / 1000);
   if (progress.talents.lumber) add(`${t('buffTalent')} · ${t('talentLumber')}`, t('masteryDamage', talentValue('lumber', progress.talents.lumber)));
   if (progress.talents.learning) add(`${t('buffTalent')} · ${t('talentLearning')}`, t('masteryXp', talentValue('learning', progress.talents.learning)));
-  if (progress.talents.autoCollect) add(`${t('buffTalent')} · ${t('talentAuto')}`, remaining > 0 ? t('buffPickupOverride') : t('buffPickup', talentValue('autoCollect', progress.talents.autoCollect)));
-  if (remaining > 0) add(t('buffTrial'), t('buffTrialTime', `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`));
+  if (progress.talents.autoCollect) add(`${t('buffTalent')} · ${t('talentAuto')}`, t('buffPickup', talentValue('autoCollect', progress.talents.autoCollect)));
   add(`${t('tree')} · Lv.${progress.treeLevel}`, t('treeBonus', progress.treeLevel));
   return <View style={styles.panel}>
     <Text style={styles.title}>{t('activeBuffs')}</Text>

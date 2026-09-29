@@ -15,6 +15,7 @@ import { deployment } from '../deployment';
 import { createLiveInputQueue } from './live-input-queue';
 import { canLeaveServer, canQueueServerHit } from './server-input-policy';
 import { clearServerSession, readServerSession, writeServerSession } from './server-session';
+import { parseServerSnapshot } from './server-snapshot';
 import type { PlayerSnapshot, GameCommand, CommandRequest } from '../shared/server-contract';
 
 // Survives menu navigation, not app reload. Never written to the ordinary save file.
@@ -40,7 +41,7 @@ async function api(path: string, payload?: unknown, token?: string) {
   } finally { clearTimeout(timer); }
 }
 export type ServerController = {
-  snapshot: PlayerSnapshot | null; busy: boolean; queued: number; pending: boolean; now: number;
+  snapshot: PlayerSnapshot | null; busy: boolean; queued: number; pending: boolean; now: number; trolleySupported: boolean;
   canChop: boolean; controls: ReactNode; notice: string;
   connect: () => void;
   hit: () => boolean; command: (command: GameCommand) => boolean; dragging: (value: boolean) => void;
@@ -49,7 +50,11 @@ export type ServerController = {
 export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'en'; renderMain: (controller: ServerController) => ReactNode }) {
   const ko = language === 'ko', token = useRef<string | null>(sessionCache.token), lock = useRef(false);
   const [busy, setBusy] = useState(false), [restoring, setRestoring] = useState(true);
-  const [state, setState] = useState<PlayerSnapshot | null>(sessionCache.state), [notice, setNotice] = useState('');
+  const [state, setState] = useState<PlayerSnapshot | null>(() => {
+    try { return sessionCache.state ? parseServerSnapshot(sessionCache.state) : null; }
+    catch { sessionCache.state = null; return null; }
+  }), [notice, setNotice] = useState('');
+  const [trolleySupported, setTrolleySupported] = useState(true);
   const inputQueue = useRef(createLiveInputQueue());
   const readyAt = useRef(0), foreground = useRef(true);
   const pump = useRef<() => void>(() => {});
@@ -76,7 +81,14 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     return () => sub.remove();
   }, []);
   useEffect(() => () => { if (queueTimer.current) clearTimeout(queueTimer.current); }, []);
-  const updateState = (value: PlayerSnapshot | null) => { if (value?.serverTime !== undefined) serverClockOffset = value.serverTime - Date.now(); sessionCache.state = value; setState(value); };
+  const updateState = (value: PlayerSnapshot | null) => {
+    const normalized = value ? parseServerSnapshot(value) : null;
+    if (value?.serverTime !== undefined) serverClockOffset = value.serverTime - Date.now();
+    if (value) setTrolleySupported(Object.hasOwn(value.progress, 'trolleyWood'));
+    sessionCache.state = normalized;
+    setState(normalized);
+    return normalized;
+  };
   // Expiry must not silently switch a server player into the local economy.
   const expireSession = async () => {
     token.current = null; sessionCache.token = null; sessionCache.pending = null;
@@ -172,6 +184,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     try {
       const sentType = sessionCache.pending.command.type;
       const beforeHarvested = sessionCache.state.progress.harvested;
+      const beforeTrolley = sessionCache.state.progress.trolleyWood;
       const beforeCoins = sessionCache.state.progress.coins;
       const beforeGems = sessionCache.state.progress.gems;
       const sentCommand = sessionCache.pending.command;
@@ -193,14 +206,17 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       // The network round trip already consumes most of the server's 150/250 ms
       // action window. Pace from send time, not response time; the server still
       // enforces the final limit and the safe 429 retry above handles jitter.
-      readyAt.current = sentAt + (sentType === 'collectDrop' ? 300 : 200);
+      readyAt.current = sentAt + (['collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(sentType) ? 300 : 200);
       sessionCache.pending = null;
-      updateState(response);
-      if (sentType === 'collectDrop') {
+      response = updateState(response)!;
+      if (response.progress.harvested > beforeHarvested && sentType !== 'collectTrolley') {
         const collected = response.progress.harvested - beforeHarvested;
         if (beforeHarvested < 20 && response.progress.harvested >= 20) setNotice(translate(language, 'firstHarvestReady'));
         else if (collected > 0) setNotice(translate(language, 'collected', collected));
       }
+      if (sentType === 'collectTrolley' && response.progress.trolleyTrip) setNotice(translate(language, 'trolleyDeparted'));
+      if ((sentType === 'loadTrolley' || sentType === 'loadTrolleyBatch') && response.progress.trolleyWood > beforeTrolley)
+        setNotice(translate(language, 'trolleyLoaded', response.progress.trolleyWood - beforeTrolley));
       if (sentType === 'acknowledgeWallet' && response.walletCoinRewardClaimed && response.progress.coins - beforeCoins === 20)
         setNotice(translate(language, 'walletCoinGranted'));
       if (sentType === 'claimFirstRecord' && response.progress.firstRecordClaimed)
@@ -258,6 +274,10 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   };
   const enqueue = (command: GameCommand): boolean => {
     if (!foreground.current || !token.current || (lock.current && !sessionCache.pending) || (sessionCache.pending && !lock.current)) return false;
+    if (!trolleySupported && ['loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(command.type)) {
+      setNotice(ko ? '서버가 아직 트롤리를 지원하지 않아요. 서버 업데이트 전에는 목재를 보관함으로 직접 옮겨 주세요.' : 'The server does not support the trolley yet. Move logs directly to storage until it is updated.');
+      return false;
+    }
     if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
       if (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type)) return false;
       if (command.type === 'claimAdventure' && command.stage !== sessionCache.state?.progress.adventureClaimed) return false;
@@ -265,7 +285,19 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       if (command.type === 'claimGrowthReward' && sessionCache.state?.progress.growthRewardClaimed) return false;
       if (command.type === 'acknowledgeWallet' && sessionCache.state?.walletCoinRewardClaimed) return false;
     }
-    if (command.type === 'collectDrop' && sessionCache.pending?.command.type === 'collectDrop' && sessionCache.pending.command.dropId === command.dropId) return true;
+    if (command.type === 'collectDrop' || command.type === 'loadTrolley') {
+      const pending = sessionCache.pending?.command;
+      if ((pending?.type === 'collectDrop' || pending?.type === 'loadTrolley') && pending.dropId === command.dropId ||
+        pending?.type === 'loadTrolleyBatch' && pending.dropIds.includes(command.dropId) || inputQueue.current.hasDrop(command.dropId)) return true;
+    }
+    if (command.type === 'loadTrolleyBatch') {
+      const pending = sessionCache.pending?.command;
+      const remaining = command.dropIds.filter(id => !((pending?.type === 'collectDrop' || pending?.type === 'loadTrolley') && pending.dropId === id) &&
+        !(pending?.type === 'loadTrolleyBatch' && pending.dropIds.includes(id)) && !inputQueue.current.hasDrop(id));
+      if (!remaining.length) return true;
+      command = { type: 'loadTrolleyBatch', dropIds: remaining };
+    }
+    if (command.type === 'collectTrolley' && (sessionCache.pending?.command.type === 'collectTrolley' || inputQueue.current.hasType('collectTrolley'))) return false;
     if (!inputQueue.current.push(command, Date.now())) {
       setNotice(ko ? '입력이 밀렸어요. 잠시 후 다시 시도해 주세요.' : 'Input queue is full. Please try again shortly.');
       return false;
@@ -328,7 +360,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     </Pressable>}
     {!restoring && !!notice && <Text style={{ color: '#FFD18E', textAlign: 'center' }}>{notice}</Text>}
   </View>;
-  return renderMain({ snapshot: state, busy: busy || restoring, queued, pending: sessionCache.pending !== null,
+  return renderMain({ snapshot: state, busy: busy || restoring, queued, pending: sessionCache.pending !== null, trolleySupported,
     get now() { return Date.now() + serverClockOffset; }, canChop: !!token.current && canQueueServerHit(input), notice,
     connect: () => { if (!restoring) void run(false); },
     hit: enqueueHit, dragging: setCollecting, record, checkRecord,

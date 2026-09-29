@@ -2,6 +2,7 @@ export const RECOVERY_MS = 30 * 60 * 1000;
 export const AXE_MAX = 200;
 export const CHARACTER_MAX = 200;
 export const TREE_MAX = 1000;
+export const STARTER_WOOD = 10;
 export const BOUNTIFUL_CHANCE = 0.1;
 // Developer samples only; acquisition and economy balance are not final.
 export const OPTION_ITEMS = {
@@ -82,8 +83,11 @@ export function upgradeTalent(state: Progress, id: TalentId): Progress {
   if (level >= TALENT_MAX[id] || state.wood < cost) return state;
   return { ...state, wood: state.wood - cost, talents: { ...state.talents, [id]: level + 1 } };
 }
+export const TROLLEY_OUTBOUND_MS = 3000;
+export const TROLLEY_RETURN_MS = 2000;
+export type TrolleyTrip = { departedAt: number; arrivesAt: number; returnsAt: number };
 export type Progress = {
-  version: 9; language: 'ko' | 'en'; wood: number; coins: number; harvested: number; xp: number;
+  version: 9; language: 'ko' | 'en'; wood: number; trolleyWood: number; trolleyTrip: TrolleyTrip | null; coins: number; harvested: number; xp: number;
   autoPickupTrial?: { startedAt: number };
   bosses?: { first: boolean; gate: boolean };
   wardenRewardsClaimed?: number;
@@ -148,10 +152,14 @@ export const baseDamage = (level: number) => level;
 export const woodYield = (damage: number) => Math.floor(Math.round(damage * 100) * 7 / 1000);
 export const rollBaseDamage = (level: number, roll: number) => level + (roll < 0.5 ? 0 : roll < 0.8 ? 1 : 2);
 export function initialProgress(language: 'ko' | 'en'): Progress {
-  return { version: 9, bosses: { first: false, gate: false }, ...talentDefaults(), ...adventureDefaults(), unequippedAxeLevels: {}, ...gemDefaults(), language, wood: 0, coins: 0, harvested: 0, xp: 0, axeLevel: 1, treeLevel: 1,
+  return { version: 9, bosses: { first: false, gate: false }, ...talentDefaults(), ...adventureDefaults(), unequippedAxeLevels: {}, ...gemDefaults(), language, wood: 0, trolleyWood: 0, trolleyTrip: null, coins: 0, harvested: 0, xp: 0, axeLevel: 1, treeLevel: 1,
     treeHp: treeHealth(1), fatigue: 0, recoveryAt: null, walletCompleted: false, receipt: null,
     slots: [null, null], inventory: [], totalHits: 0,
     firstRecordClaimed: false, axeSkin: 'default', skinQuestHarvestStart: null };
+}
+// A one-time starting grant, not harvested wood and not quest progress.
+export function starterProgress(language: 'ko' | 'en'): Progress {
+  return { ...initialProgress(language), wood: STARTER_WOOD };
 }
 export function characterLevel(xp: number) {
   let low = 1, high = CHARACTER_MAX;
@@ -300,11 +308,15 @@ export function claimAdventure(state: Progress): Progress {
     coins: state.coins + (index === 1 ? 300 : index === 3 ? 900 : index === 4 ? 1000 : 0) };
 }
 export function recover(state: Progress, now: number): Progress {
-  if (state.fatigue === 0 || state.recoveryAt === null || now < state.recoveryAt) return state;
-  const steps = Math.floor((now - state.recoveryAt) / RECOVERY_MS);
-  if (steps === 0) return state;
-  const fatigue = Math.max(0, state.fatigue - steps * 20);
-  return { ...state, fatigue, recoveryAt: fatigue === 0 ? null : state.recoveryAt + steps * RECOVERY_MS };
+  let current = state;
+  const trip = current.trolleyTrip;
+  if (trip && now >= trip.arrivesAt && current.trolleyWood > 0) current = collectTrolley(current);
+  if (trip && now >= trip.returnsAt) current = { ...current, trolleyTrip: null };
+  if (current.fatigue === 0 || current.recoveryAt === null || now < current.recoveryAt) return current;
+  const steps = Math.floor((now - current.recoveryAt) / RECOVERY_MS);
+  if (steps === 0) return current;
+  const fatigue = Math.max(0, current.fatigue - steps * 20);
+  return { ...current, fatigue, recoveryAt: fatigue === 0 ? null : current.recoveryAt + steps * RECOVERY_MS };
 }
 // autoPickupEntitled is a trusted future entitlement input, never a client-save purchase flag.
 export function hit(state: Progress, now: number, random: () => number = Math.random, autoPickupEntitled = false) {
@@ -347,8 +359,29 @@ export function hit(state: Progress, now: number, random: () => number = Math.ra
   };
 }
 export function collect(state: Progress, value: number): Progress {
-  if (!Number.isSafeInteger(value) || value <= 0) return state;
+  if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(state.wood + value + state.trolleyWood) || !Number.isSafeInteger(state.harvested + value + state.trolleyWood)) return state;
   return { ...state, wood: state.wood + value, harvested: state.harvested + value };
+}
+// Boss HP is deliberately excluded so the cart does not suddenly grow at a gate.
+export const trolleyCapacity = (state: Pick<Progress, 'treeLevel'>): number => Math.ceil(treeHealth(state.treeLevel) / 3);
+export function loadTrolley(state: Progress, value: number): Progress {
+  if (state.trolleyTrip || !Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(state.trolleyWood + value) ||
+    state.trolleyWood + value > trolleyCapacity(state) ||
+    !Number.isSafeInteger(state.wood + state.trolleyWood + value) || !Number.isSafeInteger(state.harvested + state.trolleyWood + value)) return state;
+  return { ...state, trolleyWood: state.trolleyWood + value };
+}
+export function dispatchTrolley(state: Progress, now: number): Progress {
+  if (state.trolleyTrip || state.trolleyWood <= 0 || !Number.isSafeInteger(now) || now < 0 ||
+    !Number.isSafeInteger(now + TROLLEY_OUTBOUND_MS + TROLLEY_RETURN_MS) ||
+    !Number.isSafeInteger(state.wood + state.trolleyWood) || !Number.isSafeInteger(state.harvested + state.trolleyWood)) return state;
+  return { ...state, trolleyTrip: { departedAt: now, arrivesAt: now + TROLLEY_OUTBOUND_MS,
+    returnsAt: now + TROLLEY_OUTBOUND_MS + TROLLEY_RETURN_MS } };
+}
+export function collectTrolley(state: Progress): Progress {
+  if (state.trolleyWood <= 0) return state;
+  const empty = { ...state, trolleyWood: 0 };
+  const collected = collect(empty, state.trolleyWood);
+  return collected === empty ? state : collected;
 }
 export function upgrade(state: Progress, kind: 'axe' | 'tree'): Progress {
   if (kind === 'tree' && state.treeHp !== 0) return state;
@@ -406,11 +439,17 @@ export function parseProgress(raw: string): Progress {
 }
 function parseSavedProgress(raw: string): Progress {
   const s = JSON.parse(raw);
+  // Existing v9 saves predate the trolley. Loaded cargo is safe across app and server restarts.
+  if (s && s.trolleyWood === undefined) s.trolleyWood = 0;
+  if (s && s.trolleyTrip === undefined) s.trolleyTrip = null;
   const integer = (value: unknown, min: number, max = Number.MAX_SAFE_INTEGER) =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max;
   const legacy = s?.version === 1;
   if (!s || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(s.version) || !['ko', 'en'].includes(s.language) ||
-    !integer(s.wood, 0) || !integer(s.harvested, s.wood) || !integer(s.xp, 0) ||
+    !integer(s.wood, 0) || !integer(s.trolleyWood, 0) || !integer(s.harvested, 0) || s.wood > s.harvested + STARTER_WOOD || !integer(s.xp, 0) ||
+    (s.trolleyTrip !== null && (!s.trolleyTrip || typeof s.trolleyTrip !== 'object' || Array.isArray(s.trolleyTrip) ||
+      !integer(s.trolleyTrip.departedAt, 0) || s.trolleyTrip.arrivesAt !== s.trolleyTrip.departedAt + TROLLEY_OUTBOUND_MS ||
+      s.trolleyTrip.returnsAt !== s.trolleyTrip.arrivesAt + TROLLEY_RETURN_MS || !integer(s.trolleyTrip.returnsAt, 0))) ||
     !integer(s.axeLevel, 1, legacy ? 10 : AXE_MAX) || !integer(s.treeLevel, 1, legacy ? 5 : TREE_MAX) ||
     typeof s.treeHp !== 'number' || !Number.isFinite(s.treeHp) || s.treeHp < 0 ||
     s.treeHp > (legacy ? 100 + (s.treeLevel - 1) * 70 : activeBoss(s) ? encounterHealth(s) : originalTreeHealth(s.treeLevel)) || !integer(s.fatigue, 0, 100) ||

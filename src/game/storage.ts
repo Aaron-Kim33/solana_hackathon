@@ -1,5 +1,5 @@
 import { File, Paths } from 'expo-file-system';
-import { initialProgress, parseProgress, type Progress } from './progression';
+import { starterProgress, parseProgress, type Progress } from './progression';
 
 let sequence = 0;
 const slot = (index: number) => new File(Paths.document, `lumber-rush-save-${index}.json`);
@@ -22,7 +22,7 @@ export function loadProgress(language: 'ko' | 'en'): Progress {
     return candidates[0].state;
   }
   if (existed) throw new Error('INVALID_SAVE');
-  return initialProgress(language);
+  return starterProgress(language);
 }
 export function saveProgress(state: Progress) {
   const next = sequence + 1;

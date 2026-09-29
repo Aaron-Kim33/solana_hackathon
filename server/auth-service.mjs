@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, createPublicKey, randomBytes, randomUUID, verify } from 'node:crypto';
 import { PublicKey } from '@solana/web3.js';
-import { initialProgress } from '../src/game/progression.ts';
+import { starterProgress } from '../src/game/progression.ts';
 
 const CHALLENGE_MS = 5 * 60_000, SESSION_MS = 24 * 60 * 60_000;
 const hash = token => createHash('sha256').update(token).digest('hex');
@@ -46,7 +46,7 @@ export function openAuthService(path, { origin, now = Date.now } = {}) {
         let playerId = db.prepare('SELECT player_id FROM wallet_links WHERE wallet = ?').get(c.wallet)?.player_id;
         if (!playerId) {
           playerId = randomUUID();
-          db.prepare('INSERT INTO players VALUES (?,0,?,?)').run(playerId, 'server', JSON.stringify(initialProgress('ko')));
+          db.prepare('INSERT INTO players VALUES (?,0,?,?)').run(playerId, 'server', JSON.stringify(starterProgress('ko')));
           db.prepare('INSERT INTO wallet_links VALUES (?,?)').run(c.wallet, playerId);
         }
         const token = randomBytes(32).toString('base64url'), expiresAt = time + SESSION_MS;

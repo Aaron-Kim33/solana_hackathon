@@ -22,7 +22,8 @@ test('HTTP login, account retrieval, rejection, logout end to end', async t => {
   const session = await (await post('/auth/login', { challengeId: c.challengeId, signature })).json();
   assert.equal(typeof session.token, 'string');
   const me = await (await fetch(base + '/me', { headers: { Authorization: `Bearer ${session.token}` } })).json();
-  assert.equal(me.progress.wood, 0);
+  assert.equal(me.progress.wood, 10);
+  assert.equal(me.progress.harvested, 0);
   assert.equal((await post('/auth/login', { challengeId: c.challengeId, signature })).status, 401);
   assert.equal((await post('/auth/challenge', { wallet, wood: 900 })).status, 400);
   assert.equal((await post('/auth/logout', {}, session.token)).status, 200);

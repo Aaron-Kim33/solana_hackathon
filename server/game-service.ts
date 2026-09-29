@@ -12,12 +12,14 @@ export function parseRequest(value: unknown): CommandRequest {
       Object.keys(c).some(key => !['type', 'stage'].includes(key))) throw new Error('INVALID_COMMAND');
     return r;
   }
-  if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'collectDrop', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||
+  if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||
     (c.type === 'equipOption' && ((c.slot !== 0 && c.slot !== 1) || typeof c.item !== 'string' ||
       !(Object.hasOwn(OPTION_ITEMS, c.item) || GEM_TIERS.some(tier => Object.keys(OPTION_ITEMS).some(kind => c.item === `${tier}:${kind}`))))) ||
-    (c.type === 'collectDrop' && (typeof c.dropId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(c.dropId)))) throw new Error('INVALID_COMMAND');
+    ((c.type === 'collectDrop' || c.type === 'loadTrolley') && (typeof c.dropId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(c.dropId))) ||
+    (c.type === 'loadTrolleyBatch' && (!Array.isArray(c.dropIds) || c.dropIds.length < 1 || c.dropIds.length > 8 ||
+      c.dropIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(id)) || new Set(c.dropIds).size !== c.dropIds.length))) throw new Error('INVALID_COMMAND');
   if (Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
-    Object.keys(c).some(key => !(c.type === 'equipAxe' ? ['type', 'skin'] : c.type === 'equipOption' ? ['type', 'slot', 'item'] : c.type === 'fuse' || c.type === 'openGem' ? ['type', 'tier'] : c.type === 'hitBatch' ? ['type', 'count'] : c.type === 'collectDrop' ? ['type', 'dropId'] : ['type']).includes(key))) throw new Error('INVALID_COMMAND');
+    Object.keys(c).some(key => !(c.type === 'equipAxe' ? ['type', 'skin'] : c.type === 'equipOption' ? ['type', 'slot', 'item'] : c.type === 'fuse' || c.type === 'openGem' ? ['type', 'tier'] : c.type === 'hitBatch' ? ['type', 'count'] : c.type === 'collectDrop' || c.type === 'loadTrolley' ? ['type', 'dropId'] : c.type === 'loadTrolleyBatch' ? ['type', 'dropIds'] : ['type']).includes(key))) throw new Error('INVALID_COMMAND');
   return r;
 }
 // Test-only in-memory service, one account per instance. NOT a deployable backend.

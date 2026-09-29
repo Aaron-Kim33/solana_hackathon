@@ -46,3 +46,34 @@ test('available server time limits the batch, even with rapid taps', () => {
   assert.deepEqual(q.take(1750, 1300).command, { type: 'hitBatch', count: 4 });
   assert.equal(q.size, 1);
 });
+test('trolley loads deduplicate per drop and banking stays after queued loads', () => {
+  const q = createLiveInputQueue();
+  assert.equal(q.push({ type: 'loadTrolley', dropId: 'drop_a' }, 1000), true);
+  assert.equal(q.push({ type: 'loadTrolley', dropId: 'drop_a' }, 1001), true);
+  assert.equal(q.push({ type: 'loadTrolley', dropId: 'drop_b' }, 1002), true);
+  assert.equal(q.push({ type: 'collectTrolley' }, 1003), true);
+  assert.equal(q.size, 3);
+  assert.deepEqual(q.take(1100, 0).command, { type: 'loadTrolley', dropId: 'drop_a' });
+  assert.deepEqual(q.take(1400, 0).command, { type: 'loadTrolley', dropId: 'drop_b' });
+  assert.deepEqual(q.take(1700, 0).command, { type: 'collectTrolley' });
+});
+test('queued sweep exposes covered drops for repeated swipe deduplication', () => {
+  const q = createLiveInputQueue();
+  q.push({ type: 'loadTrolleyBatch', dropIds: ['drop_one', 'drop_two'] }, 1000);
+  assert.equal(q.hasDrop('drop_one'), true);
+  assert.equal(q.hasDrop('drop_two'), true);
+  assert.equal(q.hasDrop('drop_three'), false);
+  q.take(1000, 0);
+  assert.equal(q.hasDrop('drop_one'), false);
+});
+test('direct storage pickup and trolley loading cannot queue the same ground drop', () => {
+  const q = createLiveInputQueue();
+  q.push({ type: 'collectDrop', dropId: 'drop_one' }, 1000);
+  assert.equal(q.hasDrop('drop_one'), true);
+  q.push({ type: 'loadTrolley', dropId: 'drop_one' }, 1001);
+  assert.equal(q.size, 1);
+  q.clear();
+  q.push({ type: 'loadTrolleyBatch', dropIds: ['drop_one', 'drop_two'] }, 1002);
+  q.push({ type: 'collectDrop', dropId: 'drop_two' }, 1003);
+  assert.equal(q.size, 1);
+});
