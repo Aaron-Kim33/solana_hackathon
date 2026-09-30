@@ -25,7 +25,7 @@ export function parseRequest(value: unknown): CommandRequest {
       Object.keys(c).some(key => !['type', 'facility', 'amount'].includes(key))) throw new Error('INVALID_COMMAND');
     return r;
   }
-  if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||
+  if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'hitWorldBoss', 'collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||
     (c.type === 'equipOption' && ((c.slot !== 0 && c.slot !== 1) || typeof c.item !== 'string' ||
       !(Object.hasOwn(OPTION_ITEMS, c.item) || GEM_TIERS.some(tier => Object.keys(OPTION_ITEMS).some(kind => c.item === `${tier}:${kind}`))))) ||
     ((c.type === 'collectDrop' || c.type === 'loadTrolley') && (typeof c.dropId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(c.dropId))) ||

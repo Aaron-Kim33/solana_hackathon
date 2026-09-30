@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-export function ForestMap({ language, communityReady, onPersonal, onCommunity }: { language: 'ko' | 'en'; communityReady: boolean;
-  onPersonal: () => void; onCommunity: () => void }) {
+export function ForestMap({ language, communityReady, bossReady, onPersonal, onCommunity, onWorldBoss }: { language: 'ko' | 'en'; communityReady: boolean; bossReady: boolean;
+  onPersonal: () => void; onCommunity: () => void; onWorldBoss: () => void }) {
   const ko = language === 'ko';
   return <View style={s.container}>
     <Text style={s.caption}>{ko ? '어디로 갈까요?' : 'Where to next?'}</Text>
@@ -22,6 +22,16 @@ export function ForestMap({ language, communityReady, onPersonal, onCommunity }:
         <Text style={s.detail}>{ko ? '함께 광산과 묘목길을 키우는 곳' : 'Build the mine and sapling path together'}</Text>
         <Text style={s.enter}>{communityReady ? ko ? '들어가기 ›' : 'Enter ›' : ko ? '서버 저장 연결 후 입장' : 'Connect server save to enter'}</Text>
       </Pressable>
+      <View style={s.path}><View style={s.pathDot} /><View style={s.pathLine} /><View style={s.pathDot} /></View>
+      <Pressable accessibilityRole="button" accessibilityLabel={ko ? '월드보스 숲으로 이동' : 'Enter world boss forest'}
+        accessibilityState={{ disabled: !bossReady }} disabled={!bossReady} onPress={onWorldBoss}
+        style={[s.place, s.boss, !bossReady && s.unavailable]}>
+        <Text style={s.icon}>🌲</Text>
+        <Text style={s.title}>{ko ? '월드보스 숲' : 'World boss forest'}</Text>
+        <Text style={s.detail}>{ko ? '무시무시한 나무 괴물 · 주간 100타' : 'Ancient tree monster · 100 weekly hits'}</Text>
+        <Text style={s.enter}>{bossReady ? ko ? '도전하기 ›' : 'Challenge ›' : communityReady ? ko ? '서버 업데이트 후 입장' : 'Update server to enter'
+          : ko ? '서버 저장 연결 후 입장' : 'Connect server save to enter'}</Text>
+      </Pressable>
     </View>
   </View>;
 }
@@ -33,6 +43,7 @@ const s = StyleSheet.create({
   place: { width: '100%', minHeight: 172, borderRadius: 24, padding: 19, alignItems: 'center', justifyContent: 'center', gap: 5, borderWidth: 2 },
   personal: { backgroundColor: '#1E5445ED', borderColor: '#A8D18B' },
   community: { backgroundColor: '#385E57ED', borderColor: '#F1D47E' },
+  boss: { backgroundColor: '#233D42ED', borderColor: '#F0A66E' },
   unavailable: { opacity: 0.72 }, icon: { fontSize: 40 },
   title: { color: '#FFF2D1', fontSize: 21, fontWeight: '900' },
   detail: { color: '#D3E9D4', fontSize: 12, textAlign: 'center' },

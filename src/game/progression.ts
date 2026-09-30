@@ -318,17 +318,20 @@ export function recover(state: Progress, now: number): Progress {
   const fatigue = Math.max(0, current.fatigue - steps * 20);
   return { ...current, fatigue, recoveryAt: fatigue === 0 ? null : current.recoveryAt + steps * RECOVERY_MS };
 }
+export function rollCombatDamage(state: Progress, random: () => number = Math.random) {
+  const stats = rawCombatStats(state);
+  const roll = random();
+  const base = state.axeSkin === 'recovery' ? stats.min : state.axeSkin === 'warden' ? stats.min + (roll < 0.5 ? 0 : roll < 0.8 ? 25 : 50) : rollBaseDamage(stats.min, roll);
+  const critical = random() < stats.critChance / 100;
+  const damage = Math.round(base * (critical ? stats.critDamage / 100 : 1) *
+    (1 + (talentValue('lumber', state.talents.lumber) + masteryBonus(state, 'default')) / 100) * 100) / 100;
+  return { damage, critical };
+}
 // autoPickupEntitled is a trusted future entitlement input, never a client-save purchase flag.
 export function hit(state: Progress, now: number, random: () => number = Math.random, autoPickupEntitled = false) {
   const current = recover(state, now);
   if (current.fatigue >= 100 || current.treeHp === 0) return null;
-  const stats = rawCombatStats(current);
-  const roll = random();
-  const base = state.axeSkin === 'recovery' ? stats.min : state.axeSkin === 'warden' ? stats.min + (roll < 0.5 ? 0 : roll < 0.8 ? 25 : 50) : rollBaseDamage(stats.min, roll);
-  const critical = random() < stats.critChance / 100;
-  // Keep two decimal places so a 105% critical is meaningful even at level 1.
-  const damage = Math.round(base * (critical ? stats.critDamage / 100 : 1) *
-    (1 + (talentValue('lumber', current.talents.lumber) + masteryBonus(current, 'default')) / 100) * 100) / 100;
+  const { damage, critical } = rollCombatDamage(current, random);
   const baseWood = woodYield(damage);
   // Independent of criticals; zero-yield hits never receive a bonus.
   const harvestRoll = random();

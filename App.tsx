@@ -27,6 +27,7 @@ import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { CommunityWorld } from './src/game/CommunityWorld';
 import { ForestMap } from './src/game/ForestMap';
+import { WorldBossWorld } from './src/game/WorldBossWorld';
 import { PlayGuide } from './src/game/PlayGuide';
 import { TutorialNudge } from './src/game/TutorialNudge';
 import { nextTutorial, tutorialBit, type TutorialStep } from './src/game/tutorial';
@@ -130,7 +131,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const serverRef = useRef(server); serverRef.current = server;
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
-  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
+  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
@@ -863,7 +864,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>}
       </View>
       </View>
-      <Modal visible={panel !== null && panel !== 'map' && panel !== 'community'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
+      <Modal visible={panel !== null && panel !== 'map' && panel !== 'community' && panel !== 'worldBoss'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('close')} onPress={() => setPanel(null)} />
           <View style={styles.modalCard} accessibilityViewIsModal>
@@ -1008,24 +1009,28 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           </View>
         </View>
       </Modal>
-      <Modal visible={panel === 'map' || panel === 'community'} animationType="slide"
-        onRequestClose={() => setPanel(panel === 'community' ? 'map' : null)}>
+      <Modal visible={panel === 'map' || panel === 'community' || panel === 'worldBoss'} animationType="slide"
+        onRequestClose={() => setPanel(panel === 'map' ? null : 'map')}>
         <SafeAreaView style={styles.mapSurface}>
           <StatusBar style="light" />
           {panel === 'map' && <Image source={require('./assets/forest/background.png')} resizeMode="cover" style={StyleSheet.absoluteFill} />}
           {panel === 'map' && <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.mapShade]} />}
           <View style={styles.mapHeader}>
-            <Pressable accessibilityRole="button" onPress={() => setPanel(panel === 'community' ? 'map' : null)} style={styles.mapBack}>
-              <Text style={styles.mapBackText}>{panel === 'community' ? language === 'ko' ? '‹ 지도' : '‹ Map' : language === 'ko' ? '‹ 숲' : '‹ Forest'}</Text>
+            <Pressable accessibilityRole="button" onPress={() => setPanel(panel === 'map' ? null : 'map')} style={styles.mapBack}>
+              <Text style={styles.mapBackText}>{panel !== 'map' ? language === 'ko' ? '‹ 지도' : '‹ Map' : language === 'ko' ? '‹ 숲' : '‹ Forest'}</Text>
             </Pressable>
-            <Text style={styles.mapTitle}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
+            <Text style={styles.mapTitle}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : panel === 'worldBoss' ? language === 'ko' ? '월드보스 숲' : 'World boss forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
             <View style={{ width: 64 }} />
           </View>
           {panel === 'map' ? <ScrollView contentContainerStyle={styles.mapContent}>
-            <ForestMap language={language} communityReady={online && !!server!.snapshot?.community}
-              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }} />
-          </ScrollView> : online && server!.snapshot?.community && <CommunityWorld state={server!.snapshot.community} language={language}
-            command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />}
+            <ForestMap language={language} communityReady={online && !!server!.snapshot?.community} bossReady={online && !!server!.snapshot?.worldBoss}
+              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }}
+              onWorldBoss={() => { setPanel('worldBoss'); server!.refresh(); }} />
+          </ScrollView> : panel === 'community' && online && server!.snapshot?.community ? <CommunityWorld state={server!.snapshot.community} language={language}
+            command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />
+            : panel === 'worldBoss' && online && server!.snapshot?.worldBoss ? <WorldBossWorld state={server!.snapshot.worldBoss}
+              progress={progress} language={language} command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0}
+              lastDamage={server!.snapshot.lastBossDamage} /> : null}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>

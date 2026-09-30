@@ -1,9 +1,10 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
-import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
+import { starterProgress, parseProgress, hit, rollCombatDamage, recoveryOwned, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
+import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
 
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
@@ -64,6 +65,12 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         amount INTEGER NOT NULL CHECK(amount >= 0),
         PRIMARY KEY(player_id, week_start, facility)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS world_boss_hits (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL,
+        hits INTEGER NOT NULL CHECK(hits >= 0 AND hits <= 100),
+        damage REAL NOT NULL CHECK(damage >= 0),
+        PRIMARY KEY(player_id, week_start)
+      ) STRICT;
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
       PRAGMA user_version = 6;
       COMMIT;
@@ -95,6 +102,13 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       progress: (quest.period === 'daily' ? today : week)[quest.metric], target: quest.target, materials: quest.materials,
       claimed: claims.has(`${quest.period === 'daily' ? dayStart : weekStart}:${quest.id}`) })) };
   };
+  const worldBossSnapshot = (accountId, time) => {
+    const weekStart = worldBossWeekStart(time);
+    const mine = db.prepare('SELECT hits,damage FROM world_boss_hits WHERE player_id=? AND week_start=?').get(accountId, weekStart) ?? { hits: 0, damage: 0 };
+    const global = db.prepare('SELECT COALESCE(SUM(hits),0) AS totalHits,COALESCE(SUM(damage),0) AS totalDamage,COUNT(*) AS participants FROM world_boss_hits WHERE week_start=?').get(weekStart);
+    return { weekStart, hits: mine.hits, damage: Math.round(mine.damage * 100) / 100, totalHits: global.totalHits,
+      totalDamage: Math.round(global.totalDamage * 100) / 100, participants: global.participants };
+  };
   const load = accountId => {
     const row = db.prepare('SELECT * FROM players WHERE id = ?').get(id(accountId));
     if (!row) throw new Error('PLAYER_NOT_FOUND');
@@ -103,6 +117,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     const walletCoinRewardClaimed = !!db.prepare('SELECT 1 FROM wallet_coin_grants WHERE player_id = ?').get(accountId);
     return { revision: row.revision, provenance: row.provenance, progress: parseProgress(row.progress), walletCoinRewardClaimed,
       community: communitySnapshot(accountId, time),
+      worldBoss: worldBossSnapshot(accountId, time),
       drops: play ? JSON.parse(play.drops).filter(drop => drop.expiresAt > time) : [], serverTime: time };
   };
   return {
@@ -130,7 +145,26 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         const before = load(accountId);
         const time = now(), c = r.command;
         let after;
-        if (c.type === 'contributeCommunity') {
+        if (c.type === 'hitWorldBoss') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          const play = db.prepare('SELECT * FROM play_state WHERE player_id = ?').get(accountId);
+          if (play && (time < play.last_action + 150 || time < play.collect_until || time < play.last_hit + attackIntervalMs(before.progress))) throw new Error('ACTION_TOO_FAST');
+          if (before.worldBoss.hits >= WORLD_BOSS_WEEKLY_HITS) throw new Error('ACTION_UNAVAILABLE');
+          const current = recover(before.progress, time);
+          if (current.fatigue >= 100) throw new Error('ACTION_UNAVAILABLE');
+          const { damage, critical } = rollCombatDamage(current, random);
+          const fatigueSaved = current.axeSkin === 'recovery' && recoveryOwned(current) && random() < 0.3;
+          const next = { ...current, fatigue: Math.min(100, current.fatigue + (fatigueSaved ? 0 : 1)),
+            recoveryAt: fatigueSaved ? current.recoveryAt : current.recoveryAt ?? time };
+          const weekStart = worldBossWeekStart(time);
+          db.prepare('INSERT INTO world_boss_hits VALUES (?,?,1,?) ON CONFLICT(player_id,week_start) DO UPDATE SET hits=hits+1,damage=ROUND(damage+excluded.damage,2)')
+            .run(accountId, weekStart, damage);
+          after = { ...before, progress: next, revision: before.revision + 1, serverTime: time,
+            lastBossDamage: damage, lastBossCritical: critical };
+          db.prepare('INSERT INTO play_state (player_id,last_action,collect_until,drops,last_hit) VALUES (?,?,?,?,?) ON CONFLICT(player_id) DO UPDATE SET last_action=excluded.last_action,last_hit=excluded.last_hit')
+            .run(accountId, time, 0, JSON.stringify(before.drops), time);
+        } else if (c.type === 'contributeCommunity') {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           if (communitySnapshot(accountId, time).materials < c.amount) throw new Error('ACTION_UNAVAILABLE');
@@ -238,6 +272,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
             .run(accountId, communityDayStart(time), hits, bundles, trolleys);
         }
         after.community = communitySnapshot(accountId, time);
+        after.worldBoss = worldBossSnapshot(accountId, time);
         // Validate the result before making all three writes visible atomically.
         parseProgress(JSON.stringify(after.progress));
         db.prepare('UPDATE players SET revision = ?, progress = ? WHERE id = ?').run(after.revision, JSON.stringify(after.progress), accountId);
