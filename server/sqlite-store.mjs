@@ -5,6 +5,7 @@ import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
+import { SQUIRREL_EXPEDITION_MS, squirrelReward } from '../src/shared/pets.ts';
 
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
@@ -71,6 +72,13 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         damage REAL NOT NULL CHECK(damage >= 0),
         PRIMARY KEY(player_id, week_start)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS squirrel_pets (
+        player_id TEXT PRIMARY KEY REFERENCES players(id), claimed_at INTEGER NOT NULL,
+        destination TEXT CHECK(destination IN ('mine','saplings')),
+        departed_at INTEGER, returns_at INTEGER,
+        reward INTEGER NOT NULL DEFAULT 0 CHECK(reward >= 0),
+        trips INTEGER NOT NULL DEFAULT 0 CHECK(trips >= 0)
+      ) STRICT;
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
       PRAGMA user_version = 6;
       COMMIT;
@@ -109,6 +117,13 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     return { weekStart, hits: mine.hits, damage: Math.round(mine.damage * 100) / 100, totalHits: global.totalHits,
       totalDamage: Math.round(global.totalDamage * 100) / 100, participants: global.participants };
   };
+  const squirrelSnapshot = accountId => {
+    const pet = db.prepare('SELECT destination,departed_at,returns_at,reward,trips FROM squirrel_pets WHERE player_id=?').get(accountId);
+    const questReady = !!db.prepare('SELECT 1 FROM community_claims WHERE player_id=? LIMIT 1').get(accountId);
+    return { owned: !!pet, questReady, trips: pet?.trips ?? 0,
+      trip: pet?.destination ? { destination: pet.destination, departedAt: pet.departed_at,
+        returnsAt: pet.returns_at, reward: pet.reward } : null };
+  };
   const load = accountId => {
     const row = db.prepare('SELECT * FROM players WHERE id = ?').get(id(accountId));
     if (!row) throw new Error('PLAYER_NOT_FOUND');
@@ -118,6 +133,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     return { revision: row.revision, provenance: row.provenance, progress: parseProgress(row.progress), walletCoinRewardClaimed,
       community: communitySnapshot(accountId, time),
       worldBoss: worldBossSnapshot(accountId, time),
+      squirrel: squirrelSnapshot(accountId),
       drops: play ? JSON.parse(play.drops).filter(drop => drop.expiresAt > time) : [], serverTime: time };
   };
   return {
@@ -132,7 +148,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -145,7 +161,37 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         const before = load(accountId);
         const time = now(), c = r.command;
         let after;
-        if (c.type === 'hitWorldBoss') {
+        if (c.type === 'claimSquirrel') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          if (!before.squirrel.questReady || before.squirrel.owned) throw new Error('ACTION_UNAVAILABLE');
+          db.prepare('INSERT INTO squirrel_pets (player_id,claimed_at) VALUES (?,?)').run(accountId, time);
+          after = { ...before, revision: before.revision + 1 };
+        } else if (c.type === 'dispatchSquirrel') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          if (!before.squirrel.owned || before.squirrel.trip) throw new Error('ACTION_UNAVAILABLE');
+          const facility = before.community.facilities.find(item => item.id === c.destination);
+          if (!facility) throw new Error('ACTION_UNAVAILABLE');
+          const reward = squirrelReward(c.destination, before.progress.treeLevel, facility.level);
+          const updated = db.prepare('UPDATE squirrel_pets SET destination=?,departed_at=?,returns_at=?,reward=? WHERE player_id=? AND destination IS NULL')
+            .run(c.destination, time, time + SQUIRREL_EXPEDITION_MS, reward, accountId);
+          if (updated.changes !== 1) throw new Error('ACTION_UNAVAILABLE');
+          after = { ...before, revision: before.revision + 1 };
+        } else if (c.type === 'collectSquirrel') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          const trip = before.squirrel.trip;
+          if (!trip || time < trip.returnsAt) throw new Error('ACTION_UNAVAILABLE');
+          const field = trip.destination === 'mine' ? 'coins' : 'wood';
+          const balance = before.progress[field] + trip.reward;
+          if (!Number.isSafeInteger(balance)) throw new Error('RESOURCE_OVERFLOW');
+          const harvested = before.progress.harvested + (field === 'wood' ? trip.reward : 0);
+          if (!Number.isSafeInteger(harvested)) throw new Error('RESOURCE_OVERFLOW');
+          const next = { ...before.progress, [field]: balance, harvested };
+          db.prepare('UPDATE squirrel_pets SET destination=NULL,departed_at=NULL,returns_at=NULL,reward=0,trips=trips+1 WHERE player_id=?').run(accountId);
+          after = { ...before, progress: next, revision: before.revision + 1 };
+        } else if (c.type === 'hitWorldBoss') {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           const play = db.prepare('SELECT * FROM play_state WHERE player_id = ?').get(accountId);
@@ -273,6 +319,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         }
         after.community = communitySnapshot(accountId, time);
         after.worldBoss = worldBossSnapshot(accountId, time);
+        after.squirrel = squirrelSnapshot(accountId);
         // Validate the result before making all three writes visible atomically.
         parseProgress(JSON.stringify(after.progress));
         db.prepare('UPDATE players SET revision = ?, progress = ? WHERE id = ?').run(after.revision, JSON.stringify(after.progress), accountId);

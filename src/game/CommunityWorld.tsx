@@ -3,6 +3,8 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import type { CommunityFacilityId, CommunityQuestId, CommunitySnapshot } from '../shared/community';
 import { COMMUNITY_MIN_CONTRIBUTION } from '../shared/community';
 import type { GameCommand } from '../shared/server-contract';
+import type { SquirrelSnapshot } from '../shared/pets';
+import { squirrelReward } from '../shared/pets';
 
 const LABELS: Record<CommunityQuestId, { ko: string; en: string }> = {
   d_hits: { ko: '벌목 20회', en: 'Chop 20 times' }, d_bundles: { ko: '목재 묶음 5개 확보', en: 'Secure 5 bundles' },
@@ -10,12 +12,17 @@ const LABELS: Record<CommunityQuestId, { ko: string; en: string }> = {
   w_bundles: { ko: '목재 묶음 25개 확보', en: 'Secure 25 bundles' }, w_trolley: { ko: '트롤리 8회 출발', en: 'Dispatch trolley 8 times' },
 };
 
-export function CommunityWorld({ state, language, command, locked }: { state: CommunitySnapshot; language: 'ko' | 'en';
+export function CommunityWorld({ state, pet, now, language, command, locked, treeLevel }: { state: CommunitySnapshot;
+  pet?: SquirrelSnapshot; now: number; treeLevel: number; language: 'ko' | 'en';
   command: (command: GameCommand) => boolean; locked: boolean }) {
   const ko = language === 'ko';
-  const [selected, setSelected] = useState<CommunityFacilityId | 'quests' | null>(null);
+  const [selected, setSelected] = useState<CommunityFacilityId | 'quests' | 'pet' | null>(null);
   const facility = state.facilities.find(item => item.id === selected);
   const name = (id: CommunityFacilityId) => id === 'mine' ? ko ? '광산' : 'Mine' : ko ? '묘목길' : 'Sapling path';
+  const trip = pet?.trip;
+  const ready = !!trip && now >= trip.returnsAt;
+  const remaining = trip ? Math.max(0, trip.returnsAt - now) : 0;
+  const timeLeft = `${Math.floor(remaining / 3_600_000)}:${Math.floor(remaining % 3_600_000 / 60_000).toString().padStart(2, '0')}`;
   if (state.facilities.some(item => !Number.isInteger(item.contributors)))
     return <View style={s.fallback}><Text style={s.title}>{ko ? '서버를 다시 시작해 주세요' : 'Restart the server'}</Text>
       <Text style={s.small}>{ko ? '새 공동 숲은 로컬 서버 재시작 후 열려요.' : 'The new forest needs the updated local server.'}</Text></View>;
@@ -30,8 +37,14 @@ export function CommunityWorld({ state, language, command, locked }: { state: Co
       <View style={s.landmarkLabel}><Text style={s.landmarkName}>{item.id === 'mine' ? '⛏ ' : '🌱 '}{name(item.id)} · Lv.{item.level}</Text>
         <Text style={s.landmarkHint}>{ko ? '눌러서 보태기' : 'Tap to contribute'}</Text></View>
     </Pressable>)}
+    {pet && <Pressable accessibilityRole="button" accessibilityLabel={ko ? '다람쥐 탐험 보기' : 'View squirrel expeditions'}
+      onPress={() => setSelected('pet')} style={s.petSpot}>
+      <Image source={require('../../assets/pets/squirrel-v1.png')} style={s.petArt} resizeMode="contain" />
+      <Text style={s.petSpotLabel}>{pet.owned ? ko ? '다람쥐 탐험' : 'Squirrel' : ko ? '다람쥐 퀘스트' : 'Squirrel quest'}</Text>
+    </Pressable>}
     {selected === null && <View style={s.dock}><Text style={s.hint}>{ko ? '광산이나 묘목길을 눌러 보세요' : 'Tap the mine or sapling path'}</Text>
-      <Pressable accessibilityRole="button" onPress={() => setSelected('quests')} style={s.primary}><Text style={s.primaryText}>{ko ? '📜 자재 퀘스트' : '📜 Material quests'}</Text></Pressable></View>}
+      <Pressable accessibilityRole="button" onPress={() => setSelected('quests')} style={s.primary}><Text style={s.primaryText}>{ko ? '📜 자재 퀘스트' : '📜 Material quests'}</Text></Pressable>
+      {!pet && <Text style={s.hint}>{ko ? '펫 탐험은 서버 업데이트 후 열려요.' : 'Update the server to unlock pet expeditions.'}</Text>}</View>}
     {facility && <View style={s.sheet}>
       <View style={s.sheetHeader}><Text style={s.title}>{facility.id === 'mine' ? '⛏ ' : '🌱 '}{name(facility.id)} · Lv.{facility.level}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel={ko ? '닫기' : 'Close'} onPress={() => setSelected(null)} style={s.close}><Text style={s.closeText}>✕</Text></Pressable></View>
@@ -44,13 +57,40 @@ export function CommunityWorld({ state, language, command, locked }: { state: Co
       <View style={s.actions}>{[1, 5, state.materials].filter((amount, index, values) => amount > 0 && values.indexOf(amount) === index).map(amount => <Pressable key={amount}
         accessibilityRole="button" disabled={locked || state.materials < amount} onPress={() => command({ type: 'contributeCommunity', facility: facility.id, amount })}
         style={[s.donate, (locked || state.materials < amount) && s.disabled]}><Text style={s.donateText}>{amount === state.materials && amount > 5 ? ko ? `전부 ${amount}` : `All ${amount}` : `+${amount}`}</Text></Pressable>)}</View>
-      <Text style={s.fine}>{ko ? '시설 효과와 펫 파견은 준비 중이에요.' : 'Facility effects and pet dispatches are coming soon.'}</Text>
+      <Text style={s.fine}>{ko ? '시설 레벨은 다람쥐 탐험 보상을 높여요.' : 'Facility levels increase squirrel expedition rewards.'}</Text>
       <Pressable accessibilityRole="button" onPress={() => setSelected('quests')} style={s.questLink}><Text style={s.gold}>{ko ? '자재 퀘스트 ›' : 'Material quests ›'}</Text></Pressable>
+    </View>}
+    {selected === 'pet' && pet && <View style={s.sheet}>
+      <View style={s.sheetHeader}><Text style={s.title}>{ko ? '🐿 다람쥐 탐험' : '🐿 Squirrel expedition'}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={ko ? '닫기' : 'Close'} onPress={() => setSelected(null)} style={s.close}><Text style={s.closeText}>✕</Text></Pressable></View>
+      <View style={s.petIntro}><Image source={require('../../assets/pets/squirrel-v1.png')} style={s.petPortrait} resizeMode="contain" />
+        <View style={s.petDescription}><Text style={s.gold}>{pet.owned ? ko ? '탐험 친구 · 다람쥐' : 'Your squirrel companion' : ko ? '첫 공동 퀘스트 보상' : 'First community quest reward'}</Text>
+          <Text style={s.small}>{pet.owned ? ko ? '한 번에 한 곳만 탐험해요. 돌아오면 직접 수령해 주세요.' : 'One route at a time. Collect when it returns.'
+            : ko ? '공동 자재 퀘스트를 하나 수령하면 영구 해금해요.' : 'Claim one material quest to unlock it permanently.'}</Text></View></View>
+      {!pet.owned ? <Pressable accessibilityRole="button" disabled={!pet.questReady || locked}
+        onPress={() => command({ type: 'claimSquirrel' })} style={[s.primary, (!pet.questReady || locked) && s.disabled]}>
+        <Text style={s.primaryText}>{pet.questReady ? ko ? '퀘스트 보상 · 다람쥐 받기' : 'Claim squirrel quest reward' : ko ? '자재 퀘스트 1개 수령 필요' : 'Claim one material quest first'}</Text></Pressable>
+        : trip ? <><Text style={s.gold}>{name(trip.destination)} · {trip.reward.toLocaleString()} {trip.destination === 'mine' ? ko ? '코인' : 'coins' : ko ? '목재' : 'wood'}</Text>
+          <Text style={s.small}>{ready ? ko ? '다람쥐가 돌아왔어요!' : 'Your squirrel is back!' : ko ? `${timeLeft} 후 귀환` : `Returns in ${timeLeft}`}</Text>
+          <Pressable accessibilityRole="button" disabled={!ready || locked} onPress={() => command({ type: 'collectSquirrel' })}
+            style={[s.primary, (!ready || locked) && s.disabled]}><Text style={s.primaryText}>{ko ? '가져온 재화 수령' : 'Collect expedition reward'}</Text></Pressable></>
+          : <><Text style={s.small}>{ko ? '4시간 탐험 · 출발 시 보상 확정 · 시설 레벨 반영' : '4-hour trip · Reward locked at dispatch · Facility level applies'}</Text>
+            <View style={s.actions}>{state.facilities.map(item => <Pressable key={item.id} accessibilityRole="button" disabled={locked}
+              onPress={() => command({ type: 'dispatchSquirrel', destination: item.id })} style={[s.routeButton, locked && s.disabled]}>
+              <Text style={s.routeText}>{item.id === 'mine' ? '⛏' : '🌱'} {name(item.id)}</Text>
+              <Text style={s.routeAmount}>+{squirrelReward(item.id, treeLevel, item.level).toLocaleString()} {item.id === 'mine' ? ko ? '코인' : 'coins' : ko ? '목재' : 'wood'}</Text></Pressable>)}</View></>}
     </View>}
     {selected === 'quests' && <View style={[s.sheet, s.questSheet]}>
       <View style={s.sheetHeader}><Text style={s.title}>{ko ? '📜 자재 퀘스트' : '📜 Material quests'}</Text>
         <Pressable accessibilityRole="button" accessibilityLabel={ko ? '닫기' : 'Close'} onPress={() => setSelected(null)} style={s.close}><Text style={s.closeText}>✕</Text></Pressable></View>
-      <ScrollView contentContainerStyle={s.questContent}>{(['daily', 'weekly'] as const).map(period => <View key={period} style={s.questGroup}>
+      <ScrollView contentContainerStyle={s.questContent}>{pet && !pet.owned && <View style={s.questGroup}>
+        <Text style={s.gold}>{ko ? '첫 동료' : 'First companion'}</Text>
+        <View style={s.questRow}><Image source={require('../../assets/pets/squirrel-v1.png')} style={s.questPetArt} resizeMode="contain" />
+          <View style={s.questText}><Text style={s.questName}>{ko ? '공동 자재 퀘스트 1개 수령' : 'Claim 1 material quest'}</Text>
+            <Text style={s.small}>{pet.questReady ? ko ? '완료 · 다람쥐 영구 해금' : 'Ready · permanent squirrel' : ko ? '0 / 1 · 다람쥐 보상' : '0 / 1 · squirrel reward'}</Text></View>
+          <Pressable accessibilityRole="button" disabled={!pet.questReady || locked} onPress={() => command({ type: 'claimSquirrel' })}
+            style={[s.claim, (!pet.questReady || locked) && s.disabled]}><Text style={s.claimText}>{pet.questReady ? ko ? '받기' : 'Claim' : ko ? '진행 중' : 'In progress'}</Text></Pressable></View>
+      </View>}{(['daily', 'weekly'] as const).map(period => <View key={period} style={s.questGroup}>
         <Text style={s.gold}>{period === 'daily' ? ko ? '오늘' : 'Today' : ko ? '이번 주' : 'This week'}</Text>
         {state.quests.filter(quest => quest.id.startsWith(period === 'daily' ? 'd_' : 'w_')).map(quest => {
           const ready = quest.progress >= quest.target && !quest.claimed;
@@ -73,6 +113,11 @@ const s = StyleSheet.create({
   landmark: { position: 'absolute', top: '31%', width: '46%', height: '34%', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 5 }, mine: { left: '2%' }, saplings: { right: '2%' },
   landmarkLabel: { backgroundColor: '#0A3732EA', borderRadius: 13, borderWidth: 1, borderColor: '#E7D48B', paddingHorizontal: 10, paddingVertical: 7, alignItems: 'center' },
   landmarkName: { color: '#FFF1C7', fontSize: 14, fontWeight: '900' }, landmarkHint: { color: '#C3DBBD', fontSize: 10, marginTop: 2 },
+  petSpot: { position: 'absolute', bottom: '15%', left: '37%', width: 100, height: 112, alignItems: 'center', justifyContent: 'flex-end' },
+  petArt: { width: 88, height: 85 }, petSpotLabel: { color: '#FFF2C6', backgroundColor: '#123B32E8', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2, fontSize: 10, fontWeight: '900' },
+  petIntro: { flexDirection: 'row', alignItems: 'center', gap: 10 }, petPortrait: { width: 82, height: 90 }, petDescription: { flex: 1, gap: 5 },
+  routeButton: { flex: 1, minHeight: 64, borderRadius: 12, borderWidth: 1, borderColor: '#E4C477', backgroundColor: '#315B4A', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  routeText: { color: '#FFF0C7', fontWeight: '900', fontSize: 13 }, routeAmount: { color: '#FFE08D', fontWeight: '800', fontSize: 12 }, questPetArt: { width: 39, height: 42 },
   dock: { position: 'absolute', bottom: 14, left: 16, right: 16, gap: 10, alignItems: 'center' },
   hint: { color: '#FFF3D1', backgroundColor: '#0B3730D9', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, fontSize: 12, fontWeight: '700', textAlign: 'center' },
   primary: { minHeight: 52, width: '100%', borderRadius: 15, backgroundColor: '#EEC65E', alignItems: 'center', justifyContent: 'center' }, primaryText: { color: '#3B3524', fontSize: 15, fontWeight: '900' },

@@ -2,7 +2,9 @@ import type { GemTier, OptionId, Progress } from '../game/progression';
 import type { PaymentCurrency, ProductId } from './catalog';
 import type { CommunityQuestId, CommunityFacilityId, CommunitySnapshot } from './community';
 import type { WorldBossSnapshot } from './world-boss';
+import type { SquirrelSnapshot } from './pets';
 export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } | { type: 'claimWardenReward' }
+  | { type: 'claimSquirrel' } | { type: 'dispatchSquirrel'; destination: CommunityFacilityId } | { type: 'collectSquirrel' }
   | { type: 'hitWorldBoss' }
   | { type: 'claimCommunityQuest'; questId: CommunityQuestId }
   | { type: 'contributeCommunity'; facility: CommunityFacilityId; amount: number }
@@ -16,6 +18,7 @@ export type ServerDrop = { id: string; value: number; expiresAt: number };
 export type PlayerSnapshot = { revision: number; provenance: 'local-test' | 'server'; progress: Progress;
   community?: CommunitySnapshot;
   worldBoss?: WorldBossSnapshot;
+  squirrel?: SquirrelSnapshot;
   drops?: ServerDrop[]; serverTime?: number; lastDamage?: number; walletCoinRewardClaimed?: boolean;
   lastBossDamage?: number; lastBossCritical?: boolean;
   hitEvents?: { hit: number; damage: number; critical: boolean }[] };

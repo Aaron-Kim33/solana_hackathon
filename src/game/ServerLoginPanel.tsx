@@ -187,6 +187,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       const beforeTrolley = sessionCache.state.progress.trolleyWood;
       const beforeCoins = sessionCache.state.progress.coins;
       const beforeGems = sessionCache.state.progress.gems;
+      const beforeSquirrelTrip = sessionCache.state.squirrel?.trip;
       const sentCommand = sessionCache.pending.command;
       const hadFirstRecordPower = firstRecordBonusActive(sessionCache.state.progress);
       let sentAt = 0;
@@ -224,6 +225,11 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       if (sentType === 'claimGrowthReward' && response.progress.growthRewardClaimed)
         setNotice(`${translate(language, 'rewardClaimed')} · ${translate(language, 'gemReceived')}`);
       if (sentType === 'claimAdventure') setNotice(translate(language, 'rewardClaimed'));
+      if (sentType === 'claimSquirrel') setNotice(ko ? '다람쥐가 탐험 친구가 되었어요!' : 'The squirrel joined your adventures!');
+      if (sentType === 'dispatchSquirrel') setNotice(ko ? '다람쥐가 탐험을 떠났어요. 4시간 뒤 돌아와요.' : 'The squirrel is exploring. It returns in 4 hours.');
+      if (sentType === 'collectSquirrel' && beforeSquirrelTrip) setNotice(ko
+        ? `다람쥐가 ${beforeSquirrelTrip.reward.toLocaleString()} ${beforeSquirrelTrip.destination === 'mine' ? '코인' : '목재'}를 가져왔어요!`
+        : `The squirrel brought back ${beforeSquirrelTrip.reward.toLocaleString()} ${beforeSquirrelTrip.destination === 'mine' ? 'coins' : 'wood'}!`);
       if (sentCommand.type === 'drawGem') {
         const tier = GEM_TIERS.find(candidate => response.progress.gems[candidate] > beforeGems[candidate]);
         if (tier) setNotice(translate(language, 'woodGemReceived', translate(language, tier)));
