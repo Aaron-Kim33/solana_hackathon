@@ -17,9 +17,13 @@ export type CommunityQuestId = typeof COMMUNITY_QUESTS[number]['id'];
 export type CommunityQuestView = { id: CommunityQuestId; progress: number; target: number; materials: number; claimed: boolean };
 export const COMMUNITY_FACILITIES = ['mine', 'saplings'] as const;
 export type CommunityFacilityId = typeof COMMUNITY_FACILITIES[number];
-export const COMMUNITY_LEVEL_STEPS = [10, 25, 50, 80] as const;
-export const communityFacilityLevel = (total: number, unit: number) =>
-  1 + COMMUNITY_LEVEL_STEPS.filter(step => total >= step * unit).length;
-export type CommunityFacilityView = { id: CommunityFacilityId; total: number; mine: number; level: number; nextTarget: number | null };
+// Both materials and distinct contributors matter. Each counted account must contribute at least 10 to that facility.
+export const COMMUNITY_MIN_CONTRIBUTION = 10;
+export const COMMUNITY_LEVEL_STEPS = [20, 45, 80, 120] as const;
+export const COMMUNITY_CONTRIBUTOR_STEPS = [1, 2, 3, 5] as const;
+export const communityFacilityLevel = (total: number, unit: number, contributors: number) =>
+  1 + COMMUNITY_LEVEL_STEPS.filter((step, index) => total >= step * unit && contributors >= COMMUNITY_CONTRIBUTOR_STEPS[index]).length;
+export type CommunityFacilityView = { id: CommunityFacilityId; total: number; mine: number; contributors: number;
+  level: number; nextTarget: number | null; nextContributors: number | null };
 export type CommunitySnapshot = { dayStart: number; weekStart: number; materials: number; targetUnit: number;
   quests: CommunityQuestView[]; facilities: CommunityFacilityView[]; myContribution: number };

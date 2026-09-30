@@ -3,7 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
-import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
+import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
@@ -83,9 +83,11 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     const targetUnit = Math.max(1, Math.min(10_000, db.prepare('SELECT COUNT(DISTINCT player_id) AS count FROM community_claims WHERE claimed_at>=? AND claimed_at<?').get(lastWeek, weekStart).count));
     const facilities = COMMUNITY_FACILITIES.map(facility => {
       const total = db.prepare('SELECT COALESCE(SUM(amount),0) AS total FROM community_contributions WHERE week_start=? AND facility=?').get(weekStart, facility).total;
+      const contributors = db.prepare('SELECT COUNT(*) AS contributors FROM community_contributions WHERE week_start=? AND facility=? AND amount>=?').get(weekStart, facility, COMMUNITY_MIN_CONTRIBUTION).contributors;
       const mine = db.prepare('SELECT amount FROM community_contributions WHERE player_id=? AND week_start=? AND facility=?').get(accountId, weekStart, facility)?.amount ?? 0;
-      const level = communityFacilityLevel(total, targetUnit);
-      return { id: facility, total, mine, level, nextTarget: level >= 5 ? null : COMMUNITY_LEVEL_STEPS[level - 1] * targetUnit };
+      const level = communityFacilityLevel(total, targetUnit, contributors);
+      return { id: facility, total, mine, contributors, level, nextTarget: level >= 5 ? null : COMMUNITY_LEVEL_STEPS[level - 1] * targetUnit,
+        nextContributors: level >= 5 ? null : COMMUNITY_CONTRIBUTOR_STEPS[level - 1] };
     });
     return { dayStart, weekStart, materials, targetUnit, facilities,
       myContribution: facilities.reduce((sum, facility) => sum + facility.mine, 0),

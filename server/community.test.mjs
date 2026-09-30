@@ -5,7 +5,17 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openGameStore } from './sqlite-store.mjs';
-import { COMMUNITY_QUESTS, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
+import { COMMUNITY_QUESTS, communityDayStart, communityWeekStart, communityFacilityLevel } from '../src/shared/community.ts';
+
+test('shared levels need both materials and distinct contributors', () => {
+  assert.equal(communityFacilityLevel(0, 1, 0), 1);
+  assert.equal(communityFacilityLevel(150, 1, 1), 2);
+  assert.equal(communityFacilityLevel(150, 1, 2), 3);
+  assert.equal(communityFacilityLevel(150, 1, 3), 4);
+  assert.equal(communityFacilityLevel(120, 1, 5), 5);
+  assert.equal(communityFacilityLevel(119, 1, 5), 4);
+  assert.equal(communityFacilityLevel(80, 2, 5), 2);
+});
 
 test('server actions advance quests; claims grant only once and a new week starts empty', t => {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-community-'));
@@ -31,6 +41,7 @@ test('server actions advance quests; claims grant only once and a new week start
   const built = store.execute('alice', contribute);
   assert.equal(built.community.materials, 0);
   assert.equal(built.community.facilities.find(f => f.id === 'mine').total, 5);
+  assert.equal(built.community.facilities.find(f => f.id === 'mine').contributors, 0);
   assert.equal(store.load('bob').community.facilities.find(f => f.id === 'mine').total, 5);
   assert.deepEqual(store.execute('alice', contribute), built);
   assert.throws(() => store.execute('alice', command('contributeCommunity', { facility: 'mine', amount: 1 })), /ACTION_UNAVAILABLE/);
@@ -99,9 +110,34 @@ test('facility level targets use distinct participants from the closed prior wee
   const alice = store.load('alice').community;
   const charlie = store.load('charlie').community;
   assert.equal(alice.targetUnit, 2);
-  assert.equal(alice.facilities.find(f => f.id === 'mine').level, 2);
-  assert.equal(alice.facilities.find(f => f.id === 'mine').nextTarget, 50);
+  assert.equal(alice.facilities.find(f => f.id === 'mine').level, 1);
+  assert.equal(alice.facilities.find(f => f.id === 'mine').nextTarget, 40);
   assert.equal(charlie.facilities.find(f => f.id === 'mine').total, 20);
   assert.equal(charlie.myContribution, 10);
+  db.close(); store.close();
+});
+
+test('one contributor cannot raise a shared facility past level two; old contributions remain', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumber-community-'));
+  const path = join(folder, 'game.sqlite');
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const time = Date.UTC(2026, 8, 28, 12), week = communityWeekStart(time);
+  const store = openGameStore(path, { now: () => time });
+  for (const player of ['alice', 'bob', 'charlie', 'dana', 'erin']) store.createPlayer(player);
+  const db = new DatabaseSync(path);
+  db.prepare('INSERT INTO community_contributions VALUES (?,?,?,?)').run('alice', week, 'mine', 150);
+  let facility = store.load('alice').community.facilities.find(f => f.id === 'mine');
+  assert.equal(facility.total, 150);
+  assert.equal(facility.level, 2);
+  assert.equal(facility.nextContributors, 2);
+  for (const player of ['bob', 'charlie', 'dana', 'erin'])
+    db.prepare('INSERT INTO community_contributions VALUES (?,?,?,?)').run(player, week, 'mine', 1);
+  assert.equal(store.load('alice').community.facilities.find(f => f.id === 'mine').level, 2);
+  for (const player of ['bob', 'charlie', 'dana', 'erin'])
+    db.prepare('UPDATE community_contributions SET amount=10 WHERE player_id=? AND week_start=? AND facility=?').run(player, week, 'mine');
+  facility = store.load('alice').community.facilities.find(f => f.id === 'mine');
+  assert.equal(facility.total, 190);
+  assert.equal(facility.contributors, 5);
+  assert.equal(facility.level, 5);
   db.close(); store.close();
 });

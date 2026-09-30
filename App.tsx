@@ -26,6 +26,7 @@ import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { CommunityPanel } from './src/game/CommunityPanel';
+import { ForestMap } from './src/game/ForestMap';
 import { PlayGuide } from './src/game/PlayGuide';
 import { TutorialNudge } from './src/game/TutorialNudge';
 import { nextTutorial, tutorialBit, type TutorialStep } from './src/game/tutorial';
@@ -124,7 +125,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const serverRef = useRef(server); serverRef.current = server;
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
-  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'community' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
+  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
@@ -750,6 +751,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestGem, pressed && { opacity: 0.65 }]}>
           <GemArt tier="high" size={44} />
         </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
+          onPress={() => setPanel('map')} style={({ pressed }) => [styles.forestMapButton, pressed && { opacity: 0.65 }]}>
+          <Text style={styles.forestMapIcon}>🗺️</Text>
+        </Pressable>
         <View pointerEvents="box-none" style={styles.forestCharacter}>
           <ForesterSprite motion={swing} skin={progress.axeSkin}
             crowned={progress.wardenRewardsClaimed === 3} size={155} />
@@ -839,12 +844,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>}
       </View>
       </View>
-      <Modal visible={panel !== null} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
+      <Modal visible={panel !== null && panel !== 'map' && panel !== 'community'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('close')} onPress={() => setPanel(null)} />
           <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.panelHeader}>
-              <Text style={styles.statValue}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
+              <Text style={styles.statValue}>{t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
               <Pressable accessibilityRole="button" onPress={() => setPanel(null)} style={styles.languageButton}><Text style={styles.walletText}>{t('close')}</Text></Pressable>
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
@@ -859,7 +864,6 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           catch { Alert.alert(language === 'ko' ? '저장 실패' : 'Save failed'); }
         }} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '개발용 지갑 퀘스트 건너뛰기 해제' : 'Undo development wallet quest skip'}</Text></Pressable>}
         <Pressable onPress={() => setPanel('quests')} style={styles.languageButton}><Text style={styles.statValue}>{t('questTitle')}</Text></Pressable>
-        {online && server!.snapshot?.community && <Pressable accessibilityRole="button" onPress={() => { setPanel('community'); server!.refresh(); }} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '공동 숲' : 'Community forest'}</Text></Pressable>}
         <Pressable onPress={() => setPanel('character')} style={styles.languageButton}><Text style={styles.statValue}>{t('character')}</Text></Pressable>
         <View style={styles.languageRow}>
           <Text style={styles.progressLabel}>{t('language')}</Text>
@@ -868,8 +872,6 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
       </View>}
       {panel === 'guide' && <PlayGuide progress={progress} saveMode={online ? 'server' : server ? 'practice' : 'local'} onQuests={() => setPanel('quests')} onGems={() => setPanel('gems')} />}
-      {panel === 'community' && online && server!.snapshot?.community && <CommunityPanel state={server!.snapshot.community} language={language} command={server!.command}
-        locked={server!.busy || server!.pending || server!.queued > 0} />}
       {panel === 'quests' && <View>
         {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
           serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}
@@ -986,6 +988,27 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             </ScrollView>
           </View>
         </View>
+      </Modal>
+      <Modal visible={panel === 'map' || panel === 'community'} animationType="slide"
+        onRequestClose={() => setPanel(panel === 'community' ? 'map' : null)}>
+        <SafeAreaView style={styles.mapSurface}>
+          <StatusBar style="light" />
+          <Image source={require('./assets/forest/background.png')} resizeMode="cover" style={StyleSheet.absoluteFill} />
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.mapShade]} />
+          <View style={styles.mapHeader}>
+            <Pressable accessibilityRole="button" onPress={() => setPanel(panel === 'community' ? 'map' : null)} style={styles.mapBack}>
+              <Text style={styles.mapBackText}>{panel === 'community' ? language === 'ko' ? '‹ 지도' : '‹ Map' : language === 'ko' ? '‹ 숲' : '‹ Forest'}</Text>
+            </Pressable>
+            <Text style={styles.mapTitle}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
+            <View style={{ width: 64 }} />
+          </View>
+          <ScrollView contentContainerStyle={styles.mapContent}>
+            {panel === 'map' && <ForestMap language={language} communityReady={online && !!server!.snapshot?.community}
+              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }} />}
+            {panel === 'community' && online && server!.snapshot?.community && <CommunityPanel state={server!.snapshot.community} language={language}
+              command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />}
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -1114,6 +1137,9 @@ const styles = StyleSheet.create({
   characterFaceHint: { borderWidth: 2, borderColor: '#FFE494', backgroundColor: '#FFE4941A' },
   holdGlow: { position: 'absolute', left: '49%', bottom: '25%', width: 92, height: 92, borderRadius: 46, backgroundColor: '#FFF4A3', zIndex: 4 },
   forestGem: { position: 'absolute', top: 104, left: 24, zIndex: 8, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  forestMapButton: { position: 'absolute', top: 164, left: 24, zIndex: 8, width: 48, height: 48, borderRadius: 14,
+    backgroundColor: '#1D4744DE', borderWidth: 1, borderColor: '#B8D3A7', alignItems: 'center', justifyContent: 'center' },
+  forestMapIcon: { fontSize: 26 },
   storageTarget: { position: 'absolute', left: 10, bottom: 3, zIndex: 8, width: 116, height: 95, alignItems: 'center', justifyContent: 'flex-end' },
   storageArt: { width: 85, height: 57, alignItems: 'center', justifyContent: 'flex-end' },
   storageTop: { position: 'absolute', top: 3, width: 84, height: 16, borderRadius: 5, backgroundColor: '#C28A4D', borderWidth: 3, borderColor: '#EDC079', zIndex: 1 },
@@ -1146,6 +1172,14 @@ const styles = StyleSheet.create({
   menuLine: { width: 20, height: 2, borderRadius: 1, backgroundColor: '#F8EED6' },
   modalBackdrop: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: '#061A20CC' },
   modalCard: { maxHeight: '88%', backgroundColor: '#102D32', borderRadius: 24, padding: 16, borderWidth: 1, borderColor: '#48736B' },
+  mapSurface: { flex: 1, backgroundColor: '#143A36', paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0 },
+  mapShade: { backgroundColor: '#082D2BB8' },
+  mapHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: '#0A302EDB', borderBottomWidth: 1, borderBottomColor: '#739B7B' },
+  mapBack: { minWidth: 64, minHeight: 44, justifyContent: 'center' },
+  mapBackText: { color: '#F7E9C6', fontSize: 14, fontWeight: '800' },
+  mapTitle: { color: '#FFF1C8', fontSize: 19, fontWeight: '900' },
+  mapContent: { paddingHorizontal: 18, paddingVertical: 18, flexGrow: 1 },
   panelHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingBottom: 12 },
   panelContent: { paddingBottom: 20 },
   disabledButton: { opacity: 0.38 },
