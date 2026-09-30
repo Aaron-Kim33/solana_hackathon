@@ -140,6 +140,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const maxTreeHp = encounterHealth(progress);
   const stats = useMemo(() => combatStats(progress), [progress]);
   const axePower = `${stats.min}–${stats.max}`;
+  const trolleyFill = progress.trolleyWood > 0
+    ? Math.min(3, Math.max(1, Math.ceil(progress.trolleyWood * 3 / trolleyCapacity(progress)))) : 0;
   const stage = treeAppearance(progress.treeLevel);
   const xpValue = level === CHARACTER_MAX ? 1 : progress.xp - xpFloor(level);
   const xpMax = level === CHARACTER_MAX ? 1 : xpRequired(level);
@@ -165,8 +167,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
   const [uiNotice, setUiNotice] = useState<GameMessage | null>(null);
   useEffect(() => {
-    if (message.key !== 'coinsEarned') return;
-    const timer = setTimeout(() => setMessage(current => current === message ? { key: 'intro' } : current), 1800);
+    if (message.key === 'intro') return;
+    const timer = setTimeout(() => setMessage(current => current === message ? { key: 'intro' } : current),
+      message.key === 'coinsEarned' ? 1800 : 2800);
     return () => clearTimeout(timer);
   }, [message]);
   useEffect(() => {
@@ -265,7 +268,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         setLogs([...activeLogs.current.values()]);
         setMode(draggingLogs.current.size > 0 ? 'collect' : 'chop');
       }
-    }, 50);
+    // Collection checks use expiresAt directly; visual cleanup can run less
+    // often without extending the five-second pickup window.
+    }, 200);
     return () => clearInterval(timer);
   }, []);
 
@@ -790,21 +795,25 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <View style={styles.storageTop} />
             <View style={styles.storageBody}><View style={styles.storagePlank} /><View style={styles.storagePlank} /></View>
           </View>
-          <Text pointerEvents="none" style={styles.storageLabel}>{t('storage')}</Text>
+          <Text pointerEvents="none" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.storageLabel}>{t('storage')}</Text>
         </View>
         <Animated.View style={[styles.trolleyTarget, { transform: [{ translateX: trolleyOffset }] }]}>
           <Pressable accessibilityRole="button" accessibilityLabel={`${t('trolleyCargo', `${progress.trolleyWood.toLocaleString(language)} / ${trolleyCapacity(progress).toLocaleString(language)}`)} · ${t('trolleyBank')}`}
             disabled={progress.trolleyWood <= 0 || !!progress.trolleyTrip || mode === 'collect' || (online && !server!.trolleySupported)} onPress={bankTrolley}
             style={({ pressed }) => [styles.trolleyButton, tutorialStep === 'trolley' && styles.tutorialTargetGlow, pressed && { opacity: 0.75 }]}>
             <View pointerEvents="none" style={styles.trolleyArt}>
-              {progress.trolleyWood > 0 && <Text style={styles.trolleyWoodArt}>🪵</Text>}
+              {trolleyFill > 0 && <View style={styles.trolleyCargoStack}>
+                {Array.from({ length: trolleyFill }, (_, index) => <View key={index} style={[styles.trolleyCargoLog, index === 1 && styles.trolleyCargoMiddle]}>
+                  <View style={styles.trolleyCargoEnd} /><View style={styles.trolleyCargoGrain} />
+                </View>)}
+              </View>}
               <View style={styles.trolleyBed} />
               <View style={styles.trolleyWheelLeft} /><View style={styles.trolleyWheelRight} />
             </View>
-            <Text style={styles.trolleyCount}>{online && !server!.trolleySupported
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.trolleyCount}>{online && !server!.trolleySupported
               ? (language === 'ko' ? '서버 업데이트 필요' : 'Server update needed')
               : progress.trolleyTrip ? t('trolleyMoving') : t('trolleyCargo', `${hudAmount(progress.trolleyWood)} / ${hudAmount(trolleyCapacity(progress))}`)}</Text>
-            {progress.trolleyWood > 0 && !progress.trolleyTrip && <Text style={styles.trolleyHint}>{t('trolleyBank')}</Text>}
+            {progress.trolleyWood > 0 && !progress.trolleyTrip && <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.trolleyHint}>{t('trolleyBank')}</Text>}
           </Pressable>
         </Animated.View>
         {logs.map((log) => (
@@ -1112,7 +1121,11 @@ const styles = StyleSheet.create({
   trolleyTarget: { position: 'absolute', right: 15, bottom: 3, zIndex: 9, width: 122, height: 92 },
   trolleyButton: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
   trolleyArt: { width: 88, height: 48, alignItems: 'center', justifyContent: 'flex-end' },
-  trolleyWoodArt: { position: 'absolute', top: -4, fontSize: 24, zIndex: 1 },
+  trolleyCargoStack: { position: 'absolute', bottom: 25, width: 72, height: 31, alignItems: 'center', justifyContent: 'flex-end', zIndex: 1 },
+  trolleyCargoLog: { width: 59, height: 12, marginBottom: -2, borderRadius: 6, borderWidth: 1, borderColor: '#EBC38B', backgroundColor: '#A8693D', flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  trolleyCargoMiddle: { marginLeft: 9, backgroundColor: '#BA7845' },
+  trolleyCargoEnd: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#C98A53', backgroundColor: '#F0BB73' },
+  trolleyCargoGrain: { width: 30, height: 2, marginLeft: 5, borderRadius: 1, backgroundColor: '#D99C65' },
   trolleyBed: { width: 78, height: 27, borderRadius: 5, backgroundColor: '#A96A3D', borderWidth: 3, borderColor: '#E1AF6A', borderTopWidth: 5 },
   trolleyWheelLeft: { position: 'absolute', bottom: -3, left: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
   trolleyWheelRight: { position: 'absolute', bottom: -3, right: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
