@@ -47,6 +47,7 @@ import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover
   treeHealth, trolleyCapacity, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
+import { squirrelAtHome, squirrelNeedsAttention, squirrelTimeLeft } from './src/shared/pets';
 
 type Log = {
   id: number;
@@ -163,8 +164,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   }, [panel, visibleQuests.active]);
   const [now, setNow] = useState(Date.now());
   const squirrel = online ? server!.snapshot?.squirrel : undefined;
-  const squirrelHome = !!squirrel?.owned && (!squirrel.trip || server!.now >= squirrel.trip.returnsAt);
-  const squirrelAttention = !!squirrel && ((!squirrel.owned && squirrel.questReady) || (!!squirrel.trip && server!.now >= squirrel.trip.returnsAt));
+  const squirrelHome = squirrelAtHome(squirrel, online ? server!.now : now);
+  const squirrelAttention = squirrelNeedsAttention(squirrel, online ? server!.now : now);
+  const squirrelAway = !!squirrel?.owned && !!squirrel.trip && !squirrelHome;
   const countdown = recoveryCountdown(progress.recoveryAt, online ? server!.now : now);
   const [logs, setLogs] = useState<Log[]>([]);
   const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil);
@@ -781,9 +783,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <Text style={styles.forestMapIcon}>🗺️</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '다람쥐 펫 탐험 열기' : 'Open squirrel expeditions'}
-            onPress={() => setPanel('pet')} style={({ pressed }) => [styles.forestShortcut, !squirrel?.owned && styles.forestShortcutUnowned, pressed && styles.forestShortcutPressed]}>
+            onPress={() => setPanel('pet')}
+            style={({ pressed }) => [styles.forestShortcut, !squirrel?.owned && styles.forestShortcutUnowned, pressed && styles.forestShortcutPressed]}>
             <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestPetIcon} resizeMode="contain" />
-            {squirrelAttention && <View pointerEvents="none" style={styles.forestShortcutDot} />}
+            {squirrelAttention && <View pointerEvents="none" style={styles.forestPetDot} />}
+            {squirrelAway && <Text pointerEvents="none" style={styles.forestPetTimer}>{squirrelTimeLeft(squirrel!.trip!.returnsAt, server!.now)}</Text>}
           </Pressable>
         </View>
         <View pointerEvents="box-none" style={styles.forestCharacter}>
@@ -828,6 +832,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         ))}
         {squirrelHome && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '돌아온 다람쥐 · 펫 탐험 열기' : 'Returned squirrel · open expeditions'}
           onPress={() => setPanel('pet')} style={styles.forestReturnedPet}>
+          {squirrel?.trip && <Text pointerEvents="none" style={styles.forestReturnedBubble}>{language === 'ko' ? '돌아왔어요!' : 'I’m back!'}</Text>}
           <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestReturnedPetArt} resizeMode="contain" />
         </Pressable>}
         {autoPickupNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={{ position: 'absolute', bottom: 12, alignSelf: 'center', color: '#FFE19C', backgroundColor: '#153936', borderRadius: 12, padding: 8, fontWeight: '800' }}>{t('autoCollected', autoPickupNotice.value)}</Text>}
@@ -1177,10 +1182,16 @@ const styles = StyleSheet.create({
   forestShortcutPressed: { opacity: 0.65 }, forestShortcutUnowned: { opacity: 0.78 },
   forestShortcutDot: { position: 'absolute', top: -3, right: -3, width: 12, height: 12,
     borderRadius: 6, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
+  forestPetDot: { position: 'absolute', top: 19, right: -7, width: 12, height: 12,
+    borderRadius: 6, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
+  forestPetTimer: { position: 'absolute', top: 53, width: 52, color: '#FFF0BB', backgroundColor: '#123A34E8',
+    borderRadius: 7, overflow: 'hidden', textAlign: 'center', fontSize: 11, fontWeight: '900' },
   forestAxeIcon: { width: 50, height: 50, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
   forestAxeIconScaled: { width: 60, height: 95, transform: [{ scale: 0.5 }] },
   forestPetIcon: { width: 43, height: 43 },
   forestReturnedPet: { position: 'absolute', left: 31, bottom: 89, width: 82, height: 85, zIndex: 7 },
+  forestReturnedBubble: { position: 'absolute', bottom: 95, left: 45, width: 80, color: '#4D3929', backgroundColor: '#FFE6A3',
+    borderRadius: 9, overflow: 'hidden', textAlign: 'center', paddingVertical: 3, fontSize: 10, fontWeight: '900' },
   forestReturnedPetArt: { width: 82, height: 85 },
   forestCharacter: { position: 'absolute', left: '25%', bottom: 18, width: 155, height: 155, zIndex: 5 },
   characterFaceTarget: { position: 'absolute', left: 46, top: 26, width: 67, height: 59, borderRadius: 30 },
