@@ -29,7 +29,7 @@ Use Node 24, Java 17, Android SDK and an Android emulator or device. Solana Mobi
 ```powershell
 npm ci
 npx expo run:android
-node --experimental-strip-types --test src/game/*.test.mjs src/solana/*.test.mjs server/*.test.mjs scripts/*.test.mjs
+node --experimental-strip-types --test src/*.test.mjs src/game/*.test.mjs src/solana/*.test.mjs server/*.test.mjs scripts/*.test.mjs
 npx tsc --noEmit
 ```
 

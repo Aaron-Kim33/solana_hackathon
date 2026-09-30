@@ -1,48 +1,37 @@
-# Server migration — phase 2: durable local database
+# Lumber Rush game API
 
-Status: contracts, reference logic, file-backed SQLite, signature authentication and a loopback-only HTTP API are implemented. A development-only mobile login test panel is connected in code; actual device signing remains unverified. No RPC payment verifier, live ranking or public deployment exists yet. Gameplay STILL uses local saves. Do not use current records for financial rewards. See LOCAL-TEST.md for startup and limitations.
+Status as of 2026-09-30: the single-replica Node 24 API is deployed in Railway preview mode with a persistent SQLite volume and a public HTTPS endpoint. The Android app can authenticate through a Solana Mobile Wallet Adapter wallet and load server-saved progress. This is a **Devnet hackathon preview**, not a production payment, ranking, or airdrop service.
 
-## Signature authentication foundation
+## Purpose and trust boundary
 
-`auth-service.mjs` uses a server-generated, five-minute, single-use message challenge bound to the wallet and configured HTTPS origin. Ed25519 verification uses Node crypto; this is a custom sign-message flow, NOT an implemented SIWS/MWA client integration. Initialize `openGameStore` before opening authentication on the same DB. The configured origin is mandatory, not supplied by the login caller.
+The app sends player intent. The server checks the wallet-linked session, expected state revision, rate limits, action timing, tree/axe/fatigue rules, drop IDs and five-second expiry, then commits the resulting state. A client cannot submit its own final wood balance, damage, random gem result or score. Successful commands, request receipts and economy audits are stored together in SQLite transactions. Repeating a request ID cannot grant the same successful reward twice; a stale revision is rejected. Local practice saves are separate and are never imported into a connected account.
 
-Successful verification atomically creates/looks up a wallet-linked fresh player, consumes the challenge and stores a SHA-256 hash of a cryptographically random session token. Sessions expire after 24 hours, survive restart and can be revoked by logout. A failed response after commit requires a new challenge; a consumed signature cannot mint another session. Existing device saves are never imported. Wallet ownership alone does not prove one human or fair gameplay.
+Normal chopping and collection do **not** create Solana transactions. The explicit First Record quest prepares a unique record, asks the player's wallet to sign a Devnet transaction, checks its network result, then unlocks a one-time reward. Do not describe this record as an NFT, real token, anti-bot proof or ranked score.
 
-`authenticatedGame` resolves player identity from the session before loading or executing commands. Tokens must not appear in URLs, logs or ordinary device save files. No seed phrase, private key or actual wallet was accessed; tests generate ephemeral keypairs.
+## API surface
 
-Before network exposure: HTTP body/schema/size checks, per-IP and per-wallet rate limits, bounded challenge storage/expiry cleanup, TLS, safe error mapping, protected client token storage, signature-cancellation UX, key/wallet-switch policy, schema migration/versioning for auth tables, security review and real-wallet tests. No public listener exists yet. Current code is not a claim of production readiness.
+- `GET /health`: preview mode, wallet identity origin and supported client capabilities.
+- `POST /auth/challenge`, `POST /auth/login`, `POST /auth/logout`: short-lived sign-message challenge, signature verification and session lifecycle.
+- `GET /me`, `POST /commands`: authenticated snapshot and game commands, including attacks, ground-drop collection, trolley loading/dispatch/recovery, progression, quests and gems.
+- `GET /record`, `POST /record/prepare`, `POST /record/submit`, `POST /record/check`: First Record state and explicit Devnet verification.
 
-## September 15 persistence milestone
+The server accepts JSON bodies up to 4 KiB on its defined POST routes. An authenticated request uses a bearer session token, not a wallet private key. Sessions are stored as token hashes, expire, and can be revoked. Authentication proves control of a wallet address; it does **not** prove one human or prevent all automation.
 
-`sqlite-store.mjs` runs on the server host, never inside the Expo bundle. Uses Node 24.14 built-in SQLite (currently emits an experimental warning) with WAL, FULL synchronous mode and explicit immediate transactions. No dependency install or cloud account required. This is a single-host prototype, not a horizontally scaled production database.
+## Run locally
 
-- Player state, successful command receipt and before/after economy audit are committed together. A failure rolls all three back.
-- Unique player/request keys survive process restarts and prevent a repeated successful command from spending again. Two connections using the same old revision cannot both commit different commands.
-- Fresh player initialization cannot overwrite existing accounts. No mobile-save import or test-grant endpoint exists. Test fixtures are explicitly local-test and stay excluded from ranked data.
-- Server RNG uses Node crypto by default; deterministic RNG injection is for tests only.
-- Tests cover reopen/retry, independent connections with stale revisions, account isolation, ledger failure rollback, malformed requests and duplicate player creation. These are not yet parallel-process stress tests, abrupt process-kill tests, disk/power-loss tests or backup/restore verification.
-- DB files are ignored by Git. Local OS access can still modify the database; audits are not cryptographically tamper-proof. Deploy only with authenticated routes, protected storage, backups and operational monitoring.
+```powershell
+node --experimental-strip-types server/start.mjs
+```
 
-Run `node --experimental-strip-types --test --test-isolation=none server/sqlite-store.test.mjs`. Tests use disposable OS-temp databases and remove them afterward. Existing device saves are untouched.
+The default launcher binds `127.0.0.1:8787` and uses an ignored local SQLite file. It is for development only. `node:sqlite` in Node 24 currently emits an experimental warning.
 
-## Implemented
+Preview hosting explicitly requires `LUMBER_SERVER_MODE=preview`, `LUMBER_ALLOW_PUBLIC_BIND=true`, `LUMBER_DB_PATH`, `LUMBER_IDENTITY_ORIGIN` and an HTTPS reverse proxy. Railway supplies `PORT` and its volume location. Startup rejects a missing Railway volume or a DB path outside that volume. Keep one replica while using this SQLite design. See [external preview setup](../docs/external-preview.md) for deployment history and [current delivery status](../docs/CLOCK-IN-DELIVERY.md) for verification gaps.
 
-- Shared product IDs, preview contents, planned once-per-account limits and SOL/SKR currency types. The app renders package quantities from this catalog. All products remain preview-only.
-- Command contracts for gem draw/fusion and Deepwood milestone claims. Clients send intent, request ID and expected revision, never a new balance or random result.
-- Test-only service verifies input, uses injected server-side randomness, checks revisions and caches successful request receipts. Repeated identical requests return their original result. Reused IDs with different payloads fail. This cache is memory-only and provides NO cross-process/restart guarantee.
-- Server/test record provenance contract and ranking eligibility guard. Provenance must come from trusted DB records; a client can forge this field and must never be allowed to set it.
+## Verify
 
-## Next implementation steps
+```powershell
+node --experimental-strip-types --test server/*.test.mjs
+npx tsc --noEmit
+```
 
-1. Extend durable storage with wallet links and sessions; add parallel-process/crash tests and backup recovery before connecting real accounts. State/commands/economy transaction foundation is implemented locally.
-2. Wallet challenge authentication: server nonce, domain, expiry, single-use signature verification, secure sessions. A connected address or MWA authorization token is not server authentication. Never request seed phrases.
-3. Authenticated API and asynchronous app gateway. Keep the local development mode explicit; never silently fall back to local rewards after network failure. Fetch authoritative state on reconnect. Existing test saves stay isolated; do not upload them into ranked accounts.
-4. Online gameplay validation: server time, fatigue, rate limits, short-lived play sessions, server RNG, valid drop IDs, collection expiry, maximum hit rates. Client animations can predict feedback, but balances come from validated server actions. No client-supplied final damage/score. This is not a guarantee against bots or multiple accounts.
-5. Payment service: server-priced expiring orders with exact integer base units, allowed network and verified mint/decimals, recipient, product version and wallet binding. Verify successful finalized transfers via trusted RPC; do not trust client receipts. Globally unique network/transaction consumption; atomic order fulfillment + inventory credit + entitlement. Handle delayed/under/over/wrong-currency payments without automatic double grants. No configured price, recipient or SKR mint yet; selling stays disabled.
-6. Ranked seasons: forest and axe mastery for progression; a separately balanced challenge for reward competition. Server-generated scores only, audit/review before frozen season snapshots. Paid buffs excluded from the proposed challenge. Payout rules, ties, anti-Sybil policy and distribution require separate implementation and review; no airdrop promise or automated payout exists.
-
-## Validation
-
-`node --experimental-strip-types --test --test-isolation=none server/game-service.test.mjs`
-
-No new services, paid infrastructure, secret keys or live player mutations are needed for this phase. Deployment provider selection and production secrets remain separate decisions.
+Tests cover command idempotency, revisions, transaction rollback, challenge replay, independent accounts, First Record failure paths, trolley recovery, gems and authenticated HTTP journeys using disposable databases. They are not a substitute for actual wallet/device tests, a database restore drill, edge-level abuse controls or production security review. The hosted preview has no payment verifier, public ranking, real reward payout or automatic airdrop. Do not use its records for financial rewards.
