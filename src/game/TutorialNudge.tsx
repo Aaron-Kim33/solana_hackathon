@@ -6,6 +6,7 @@ import type { TutorialStep } from './tutorial';
 const messageKey: Record<TutorialStep, TranslationKey> = {
   chop: 'tutorialChop', storage: 'tutorialStorage', sweep: 'tutorialSweep', trolley: 'tutorialTrolley',
   tree: 'tutorialTree', axe: 'tutorialAxe', character: 'tutorialCharacter', fatigue: 'tutorialFatigue',
+  gem: 'tutorialGem', map: 'tutorialMap', pet: 'tutorialPet',
 };
 const placement: Record<TutorialStep, ViewStyle> = {
   chop: { top: 50, right: 12 },
@@ -14,6 +15,9 @@ const placement: Record<TutorialStep, ViewStyle> = {
   trolley: { bottom: 108, right: 8 },
   tree: { bottom: 102, right: 8 },
   axe: { top: 12, left: 66 },
+  gem: { top: 72, left: 66 },
+  map: { top: 132, left: 66 },
+  pet: { top: 192, left: 66 },
   character: { bottom: 164, left: 8 },
   fatigue: { top: 8, right: 12 },
 };
@@ -23,7 +27,10 @@ const fingerPosition: Record<TutorialStep, ViewStyle> = {
   sweep: { left: '31%', bottom: 30 },
   trolley: { right: 47, bottom: 37 },
   tree: { left: '49%', top: '48%' },
-  axe: { left: 30, top: 55 },
+  axe: { left: 30, top: 14 },
+  gem: { left: 30, top: 74 },
+  map: { left: 30, top: 134 },
+  pet: { left: 30, top: 194 },
   character: { left: '35%', bottom: 127 },
   fatigue: { left: 35, top: 3 },
 };

@@ -1,5 +1,5 @@
 import { File, Paths } from 'expo-file-system';
-import { TUTORIAL_ALL_SEEN } from './tutorial';
+import { TUTORIAL_ALL_SEEN, TUTORIAL_LEGACY_ALL_SEEN } from './tutorial';
 
 export type TutorialScope = 'local' | 'server';
 const file = () => new File(Paths.document, 'lumber-rush-tutorial-v1.json');
@@ -8,10 +8,10 @@ const valid = (value: unknown): value is number => Number.isInteger(value) && (v
 export function loadTutorialSeen(scope: TutorialScope, existingProgress: boolean): number {
   try {
     const target = file();
-    if (!target.exists) return existingProgress ? TUTORIAL_ALL_SEEN : 0;
+    if (!target.exists) return existingProgress ? TUTORIAL_LEGACY_ALL_SEEN : 0;
     const saved = JSON.parse(target.textSync());
-    return valid(saved?.[scope]) ? saved[scope] : existingProgress ? TUTORIAL_ALL_SEEN : 0;
-  } catch { return existingProgress ? TUTORIAL_ALL_SEEN : 0; }
+    return valid(saved?.[scope]) ? saved[scope] : existingProgress ? TUTORIAL_LEGACY_ALL_SEEN : 0;
+  } catch { return existingProgress ? TUTORIAL_LEGACY_ALL_SEEN : 0; }
 }
 
 export function saveTutorialSeen(scope: TutorialScope, seen: number): void {

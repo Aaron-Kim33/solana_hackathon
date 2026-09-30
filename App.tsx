@@ -27,6 +27,7 @@ import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { CommunityWorld } from './src/game/CommunityWorld';
 import { SquirrelExpedition } from './src/game/SquirrelExpedition';
+import { forestShortcutUnlocks } from './src/game/shortcut-unlocks';
 import { ForestMap } from './src/game/ForestMap';
 import { WorldBossWorld } from './src/game/WorldBossWorld';
 import { PlayGuide } from './src/game/PlayGuide';
@@ -164,12 +165,13 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   }, [panel, visibleQuests.active]);
   const [now, setNow] = useState(Date.now());
   const squirrel = online ? server!.snapshot?.squirrel : undefined;
+  const shortcutUnlocks = forestShortcutUnlocks(progress, squirrel, online ? server!.snapshot?.community : undefined);
   const squirrelHome = squirrelAtHome(squirrel, online ? server!.now : now);
   const squirrelAttention = squirrelNeedsAttention(squirrel, online ? server!.now : now);
   const squirrelAway = !!squirrel?.owned && !!squirrel.trip && !squirrelHome;
   const countdown = recoveryCountdown(progress.recoveryAt, online ? server!.now : now);
   const [logs, setLogs] = useState<Log[]>([]);
-  const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil);
+  const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil, shortcutUnlocks);
   const [damagePopups, setDamagePopups] = useState<DamagePopup[]>([]);
   const [autoPickupNotice, setAutoPickupNotice] = useState<{ id: number; value: number } | null>(null);
   const [mode, setMode] = useState<'chop' | 'collect'>('chop');
@@ -774,21 +776,23 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <View pointerEvents="none" style={styles.forestAxeIcon}><View style={styles.forestAxeIconScaled}><AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} /></View></View>
             {axeUpgradeReady(progress) && <View pointerEvents="none" style={styles.forestShortcutDot} />}
           </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={t('gemFusion')}
-            onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestShortcut, pressed && styles.forestShortcutPressed]}>
+          {shortcutUnlocks.gems && <Pressable accessibilityRole="button" accessibilityLabel={t('gemFusion')}
+            onPress={() => { if (tutorialStep === 'gem') completeTutorial('gem'); setPanel('gems'); }}
+            style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'gem' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
             <GemArt tier="high" size={37} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
-            onPress={() => setPanel('map')} style={({ pressed }) => [styles.forestShortcut, pressed && styles.forestShortcutPressed]}>
+          </Pressable>}
+          {shortcutUnlocks.map && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
+            onPress={() => { if (tutorialStep === 'map') completeTutorial('map'); setPanel('map'); }}
+            style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'map' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
             <Text style={styles.forestMapIcon}>🗺️</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '다람쥐 펫 탐험 열기' : 'Open squirrel expeditions'}
-            onPress={() => setPanel('pet')}
-            style={({ pressed }) => [styles.forestShortcut, !squirrel?.owned && styles.forestShortcutUnowned, pressed && styles.forestShortcutPressed]}>
+          </Pressable>}
+          {shortcutUnlocks.pet && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '다람쥐 펫 탐험 열기' : 'Open squirrel expeditions'}
+            onPress={() => { if (tutorialStep === 'pet') completeTutorial('pet'); setPanel('pet'); }}
+            style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'pet' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
             <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestPetIcon} resizeMode="contain" />
             {squirrelAttention && <View pointerEvents="none" style={styles.forestPetDot} />}
             {squirrelAway && <Text pointerEvents="none" style={styles.forestPetTimer}>{squirrelTimeLeft(squirrel!.trip!.returnsAt, server!.now)}</Text>}
-          </Pressable>
+          </Pressable>}
         </View>
         <View pointerEvents="box-none" style={styles.forestCharacter}>
           <ForesterSprite motion={swing} skin={progress.axeSkin}
@@ -831,7 +835,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <FloatingDamage key={popup.id} popup={popup} />
         ))}
         {squirrelHome && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '돌아온 다람쥐 · 펫 탐험 열기' : 'Returned squirrel · open expeditions'}
-          onPress={() => setPanel('pet')} style={styles.forestReturnedPet}>
+          onPress={() => { if (tutorialStep === 'pet') completeTutorial('pet'); setPanel('pet'); }} style={styles.forestReturnedPet}>
           {squirrel?.trip && <Text pointerEvents="none" style={styles.forestReturnedBubble}>{language === 'ko' ? '돌아왔어요!' : 'I’m back!'}</Text>}
           <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestReturnedPetArt} resizeMode="contain" />
         </Pressable>}
