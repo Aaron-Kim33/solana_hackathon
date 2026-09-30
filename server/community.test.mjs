@@ -17,6 +17,11 @@ test('shared levels need both materials and distinct contributors', () => {
   assert.equal(communityFacilityLevel(80, 2, 5), 2);
 });
 
+test('community quest targets require a longer daily and weekly play loop', () => {
+  assert.deepEqual(COMMUNITY_QUESTS.map(quest => quest.target), [20, 5, 2, 100, 25, 8]);
+  assert.equal(COMMUNITY_QUESTS.reduce((sum, quest) => sum + quest.materials * (quest.period === 'daily' ? 7 : 1), 0), 150);
+});
+
 test('server actions advance quests; claims grant only once and a new week starts empty', t => {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-community-'));
   const path = join(folder, 'game.sqlite');
@@ -26,12 +31,16 @@ test('server actions advance quests; claims grant only once and a new week start
   store.createPlayer('alice'); store.createPlayer('bob');
   let sequence = 0;
   const command = (type, extra = {}) => ({ requestId: `community_${++sequence}`, expectedRevision: store.load('alice').revision, command: { type, ...extra } });
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 20; i++) {
+    if (store.load('alice').progress.treeHp === 0) {
+      store.execute('alice', command('regrow'));
+      clock += 2_000;
+    }
     store.execute('alice', command('hit'));
     clock += 2_000;
   }
-  assert.equal(store.load('alice').community.quests.find(q => q.id === 'd_hits').progress, 10);
-  assert.equal(store.load('alice').community.quests.find(q => q.id === 'w_hits').progress, 10);
+  assert.equal(store.load('alice').community.quests.find(q => q.id === 'd_hits').progress, 20);
+  assert.equal(store.load('alice').community.quests.find(q => q.id === 'w_hits').progress, 20);
   const claim = command('claimCommunityQuest', { questId: 'd_hits' });
   const claimed = store.execute('alice', claim);
   assert.equal(claimed.community.materials, 5);
@@ -67,7 +76,7 @@ test('quest grants roll back with the audit write and accept only defined IDs', 
   const store = openGameStore(path, { now: () => time });
   store.createPlayer('alice');
   const db = new DatabaseSync(path);
-  db.prepare('INSERT INTO community_activity VALUES (?,?,?,?,?)').run('alice', communityDayStart(time), 10, 3, 1);
+  db.prepare('INSERT INTO community_activity VALUES (?,?,?,?,?)').run('alice', communityDayStart(time), 20, 5, 2);
   const claim = { requestId: 'community_claim_001', expectedRevision: 0, command: { type: 'claimCommunityQuest', questId: 'd_hits' } };
   assert.throws(() => store.execute('alice', { ...claim, command: { ...claim.command, questId: 'invalid' } }), /INVALID_COMMAND/);
   assert.throws(() => store.execute('alice', { ...claim, command: { ...claim.command, materials: 999 } }), /INVALID_COMMAND/);

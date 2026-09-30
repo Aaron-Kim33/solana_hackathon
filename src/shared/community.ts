@@ -6,12 +6,12 @@ export const communityWeekStart = (time: number) =>
   Math.floor((time + 3 * COMMUNITY_DAY_MS) / COMMUNITY_WEEK_MS) * COMMUNITY_WEEK_MS - 3 * COMMUNITY_DAY_MS;
 
 export const COMMUNITY_QUESTS = [
-  { id: 'd_hits', period: 'daily', metric: 'hits', target: 10, materials: 5 },
-  { id: 'd_bundles', period: 'daily', metric: 'bundles', target: 3, materials: 5 },
-  { id: 'd_trolley', period: 'daily', metric: 'trolleys', target: 1, materials: 5 },
-  { id: 'w_hits', period: 'weekly', metric: 'hits', target: 50, materials: 15 },
-  { id: 'w_bundles', period: 'weekly', metric: 'bundles', target: 15, materials: 15 },
-  { id: 'w_trolley', period: 'weekly', metric: 'trolleys', target: 5, materials: 15 },
+  { id: 'd_hits', period: 'daily', metric: 'hits', target: 20, materials: 5 },
+  { id: 'd_bundles', period: 'daily', metric: 'bundles', target: 5, materials: 5 },
+  { id: 'd_trolley', period: 'daily', metric: 'trolleys', target: 2, materials: 5 },
+  { id: 'w_hits', period: 'weekly', metric: 'hits', target: 100, materials: 15 },
+  { id: 'w_bundles', period: 'weekly', metric: 'bundles', target: 25, materials: 15 },
+  { id: 'w_trolley', period: 'weekly', metric: 'trolleys', target: 8, materials: 15 },
 ] as const;
 export type CommunityQuestId = typeof COMMUNITY_QUESTS[number]['id'];
 export type CommunityQuestView = { id: CommunityQuestId; progress: number; target: number; materials: number; claimed: boolean };

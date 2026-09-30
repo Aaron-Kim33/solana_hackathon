@@ -78,6 +78,11 @@ const hudAmount = (value: number) => {
   return `${scaled < 100 ? scaled.toFixed(1) : Math.floor(scaled)}${unit === 1_000_000 ? 'M' : 'K'}`;
 };
 
+const recoveryCountdown = (recoveryAt: number | null, time: number) => {
+  const seconds = recoveryAt === null ? 0 : Math.max(0, Math.ceil((recoveryAt + RECOVERY_MS - time) / 1000));
+  return `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+};
+
 export default function App() {
   const [language, setLanguage] = useState<Language>(__DEV__ ? 'ko' : 'en');
   if (!deployment.config) return <SafeAreaView style={{ flex: 1, backgroundColor: '#102D32', justifyContent: 'center', padding: 24 }}>
@@ -155,8 +160,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     if (panel === 'quests') panelScroll.current?.scrollTo({ y: 0, animated: false });
   }, [panel, visibleQuests.active]);
   const [now, setNow] = useState(Date.now());
-  const seconds = progress.recoveryAt === null ? 0 : Math.max(0, Math.ceil((progress.recoveryAt + RECOVERY_MS - now) / 1000));
-  const countdown = `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
+  const countdown = recoveryCountdown(progress.recoveryAt, online ? server!.now : now);
   const [logs, setLogs] = useState<Log[]>([]);
   const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil);
   const [damagePopups, setDamagePopups] = useState<DamagePopup[]>([]);
@@ -168,6 +172,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     : shortcut ? t(shortcut.key, 'value' in shortcut ? shortcut.value : undefined) : null;
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
   const [uiNotice, setUiNotice] = useState<GameMessage | null>(null);
+  const notifyFatigue = useCallback(() => {
+    const connection = serverRef.current;
+    const notice: GameMessage = { key: 'fatigueFull', value: recoveryCountdown(progressRef.current.recoveryAt, connection?.snapshot ? connection.now : Date.now()) };
+    if (connection?.snapshot) setUiNotice(notice);
+    else setMessage(notice);
+  }, []);
   useEffect(() => {
     if (message.key === 'intro') return;
     const timer = setTimeout(() => setMessage(current => current === message ? { key: 'intro' } : current),
@@ -217,6 +227,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     setIsHolding(false);
   }, [holdPulse]);
   const seenServerHits = useRef(server?.snapshot?.progress.totalHits ?? 0);
+  const seenServerFatigue = useRef(server?.snapshot?.progress.fatigue ?? 0);
   const damageTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
   useEffect(() => () => { for (const timer of damageTimers.current) clearTimeout(timer); }, []);
   const lastRecoveryCheck = useRef(0);
@@ -245,6 +256,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const previousHits = seenServerHits.current;
     const hadNewHits = snapshot.progress.totalHits > previousHits;
     seenServerHits.current = snapshot.progress.totalHits;
+    if (seenServerFatigue.current < 100 && snapshot.progress.fatigue >= 100)
+      setUiNotice({ key: 'fatigueFull', value: recoveryCountdown(snapshot.progress.recoveryAt, server.now) });
+    seenServerFatigue.current = snapshot.progress.fatigue;
     if (hadNewHits && snapshot.lastDamage !== undefined) {
       const events = snapshot.hitEvents?.filter(event => event.hit > previousHits) ?? [{ damage: snapshot.lastDamage, critical: false }];
       const popups = events.map((event, i) => ({ id: nextEffectId.current++, value: event.damage, critical: event.critical, left: 62 + i * 2, top: 30 + i * 6 }));
@@ -376,7 +390,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     }
     const connection = serverRef.current;
     if (connection?.snapshot) {
-      if (progressRef.current.fatigue >= 100 || !connection.hit()) return;
+      if (progressRef.current.fatigue >= 100) { notifyFatigue(); return; }
+      if (!connection.hit()) return;
       completeTutorial('chop');
       playChopMotion();
       return;
@@ -384,7 +399,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const now = Date.now();
     const result = hit(progressRef.current, now);
     if (!result) {
-      setMessage({ key: 'tired' });
+      notifyFatigue();
       return;
     }
 
@@ -424,16 +439,19 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     if (result.autoCollected) setMessage({ key: 'autoCollected', value: result.value });
     if (leveledUp) setMessage({ key: 'levelUp', value: characterLevel(result.state.xp) });
     if (result.fatigueSaved) setMessage({ key: 'fatigueSaved' });
+    if (result.state.fatigue >= 100)
+      setMessage({ key: 'fatigueFull', value: recoveryCountdown(result.state.recoveryAt, now) });
     if (result.bossDefeated) {
       const lang = result.state.language;
       Alert.alert(translate(lang, 'bossDefeated'), translate(lang, result.bossDefeated === 'first' ? 'bossFirstReward' : 'bossGateReward'));
     }
-  }, [commit, completeTutorial, panel, playChopMotion]);
+  }, [commit, completeTutorial, notifyFatigue, panel, playChopMotion]);
 
   const chopRef = useRef(chop);
   chopRef.current = chop;
   const startHoldingTree = () => {
-    if (holdingTree.current || panel || progressRef.current.treeHp <= 0 || progressRef.current.fatigue >= 100 || draggingLogs.current.size > 0) return;
+    if (holdingTree.current || panel || progressRef.current.treeHp <= 0 || draggingLogs.current.size > 0) return;
+    if (progressRef.current.fatigue >= 100) { notifyFatigue(); return; }
     holdingTree.current = true;
     setIsHolding(true);
     holdAnimation.current = Animated.loop(Animated.sequence([
@@ -731,7 +749,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
         <Meter value={fatigue} max={100} color={fatigue > 65 ? '#EC7A67' : '#EFC75E'} />
         <View style={styles.forestInfoPanel}>
-          <Text style={styles.forestInfoText}>{fatigue > 0 ? t('recoveryIn', countdown) : t('fullyRested')}</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
+            style={[styles.forestInfoText, fatigue >= 100 && styles.fatigueFullText]}>{fatigue >= 100 ? t('fatigueFull', countdown) : fatigue > 0 ? t('recoveryIn', countdown) : t('fullyRested')}</Text>
           <Text style={styles.forestInfoText}>{t('treeBonus', progress.treeLevel)}</Text>
         </View>
       </View>
@@ -1201,6 +1220,7 @@ const styles = StyleSheet.create({
   recoveryText: { color: '#EFC75E', fontSize: 12, marginTop: 8 },
   forestInfoPanel: { marginTop: 9, paddingHorizontal: 11, paddingVertical: 7, gap: 2, borderRadius: 10, backgroundColor: '#0A292CEB', borderWidth: 1, borderColor: '#769B894D' },
   forestInfoText: { color: '#FFF2D3', fontSize: 12, fontWeight: '800' },
+  fatigueFullText: { color: '#FFB7A7' },
   questRow: { gap: 8, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#355D59' },
   questActive: { borderColor: '#EFC75E', backgroundColor: '#25484A' },
   languageRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 8, marginTop: 10 },

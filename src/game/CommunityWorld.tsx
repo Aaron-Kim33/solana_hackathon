@@ -5,9 +5,9 @@ import { COMMUNITY_MIN_CONTRIBUTION } from '../shared/community';
 import type { GameCommand } from '../shared/server-contract';
 
 const LABELS: Record<CommunityQuestId, { ko: string; en: string }> = {
-  d_hits: { ko: '벌목 10회', en: 'Chop 10 times' }, d_bundles: { ko: '목재 묶음 3개 확보', en: 'Secure 3 bundles' },
-  d_trolley: { ko: '트롤리 1회 출발', en: 'Dispatch trolley once' }, w_hits: { ko: '벌목 50회', en: 'Chop 50 times' },
-  w_bundles: { ko: '목재 묶음 15개 확보', en: 'Secure 15 bundles' }, w_trolley: { ko: '트롤리 5회 출발', en: 'Dispatch trolley 5 times' },
+  d_hits: { ko: '벌목 20회', en: 'Chop 20 times' }, d_bundles: { ko: '목재 묶음 5개 확보', en: 'Secure 5 bundles' },
+  d_trolley: { ko: '트롤리 2회 출발', en: 'Dispatch trolley twice' }, w_hits: { ko: '벌목 100회', en: 'Chop 100 times' },
+  w_bundles: { ko: '목재 묶음 25개 확보', en: 'Secure 25 bundles' }, w_trolley: { ko: '트롤리 8회 출발', en: 'Dispatch trolley 8 times' },
 };
 
 export function CommunityWorld({ state, language, command, locked }: { state: CommunitySnapshot; language: 'ko' | 'en';
