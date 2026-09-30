@@ -60,6 +60,13 @@
 
 ## 현재 기술적 경계
 
+### 9/30 제출 준비 갱신 — 아래 9/29 기록보다 우선
+
+- GitHub `main`의 `fbda35d`에 트롤리 플레이와 신규 계정 시작 목재 10개가 반영됐다. Railway 공개 `/health`는 `preview`와 `trolley-v1`, `starter-wood-10`을 반환했다. 이는 실제 Android 조작 검증은 아니다.
+- 최신 코드에서 자동 테스트 186개, `npx tsc --noEmit`, Android JS 번들 export가 통과했다. 사전 검사에서 공개 HTTPS API와 지갑 identity icon도 응답했다. 번들 export는 서명 APK 테스트를 대체하지 않는다.
+- 9/30 EAS preview 빌드 요청은 코드 오류가 아니라 Expo 무료 Android 월간 빌드 한도로 거절됐다. CLI가 10/1 초기화를 안내했다. 확인 가능한 최근 성공 APK는 9/28의 이전 커밋 `734e5e5`이므로 트롤리/시작 목재가 포함된 APK라고 주장하지 않는다.
+- 심사위원용 `README.md`와 `docs/submission-kit.md`를 갱신했다. 제출 영상·피치 완성본, 최신 APK 설치 및 실제 지갑 QA는 아직 남아 있다. 다음 순서는 EAS 한도 초기화 후 최신 preview APK 빌드 → Metro 없는 Android QA → 치명적 오류 수정 → 자료 촬영/제출이다.
+
 ### 9/29 현재 상태 — 아래 9/23 이전 기록보다 우선
 
 - 9/29 HTTP 통합 검증: 임시 지갑 키·임시 SQLite를 사용하는 자동 테스트에서 실제 API 로그인→탐험 보상→목재 보석 뽑기→합성→서버 재시작→같은 요청 재전송을 확인했다. 인증 없는 보상 명령 거부, 오래된 revision 거부, 보상·비용의 1회 반영과 감사 기록 3개를 확인했다. 전체 자동 검사 167개와 TypeScript 검사가 통과했다. 운영 Railway의 실제 지갑 계정 실사용 QA는 여전히 필요하다.
