@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
-import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
+import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
 
@@ -85,7 +85,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         const before = load(accountId);
         const time = now(), c = r.command;
         let after;
-        if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
+        if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
@@ -98,6 +98,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
             db.prepare('INSERT INTO wallet_coin_grants VALUES (?, ?)').run(accountId, time);
           } else if (c.type === 'claimFirstRecord') next = claimFirstRecord(before.progress);
           else if (c.type === 'claimGrowthReward') next = claimGrowthReward(before.progress);
+          else if (c.type === 'claimWardenReward') next = claimWardenReward(before.progress);
           else if (c.type === 'claimAdventure') {
             if (c.stage !== before.progress.adventureClaimed) throw new Error('ACTION_UNAVAILABLE');
             next = claimAdventure(before.progress);

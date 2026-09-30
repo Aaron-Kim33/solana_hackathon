@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { axeLevelFor, claimWardenReward, WARDEN_TARGETS, type Progress } from './progression';
 import { GemArt } from './GemArt';
 import { PRODUCT_CATALOG } from '../shared/catalog';
+import type { GameCommand } from '../shared/server-contract';
 
 export function GemPackages({ progress }: { progress: Progress }) {
   const [expanded, setExpanded] = useState(false);
@@ -24,7 +25,8 @@ export function GemPackages({ progress }: { progress: Progress }) {
   </View>;
 }
 
-export function WardenQuests({ progress, commit }: { progress: Progress; commit: (next: Progress) => boolean }) {
+export function WardenQuests({ progress, commit, serverCommand, serverLocked = false }: { progress: Progress; commit: (next: Progress) => boolean;
+  serverCommand?: (command: GameCommand) => boolean; serverLocked?: boolean }) {
   const latest = useRef(progress); latest.current = progress;
   const ko = progress.language === 'ko';
   const claimed = progress.wardenRewardsClaimed ?? 0;
@@ -38,8 +40,9 @@ export function WardenQuests({ progress, commit }: { progress: Progress; commit:
       return <View key={target} style={s.card}>
         <Text style={s.title}>{(ko ? ['심림에 뿌리내리다', '심림을 다스리다', '심림의 주인'] : ['Roots in Deepwood', 'Rule the Deepwood', 'Master of Deepwood'])[index]} · Lv.{target}</Text>
         <Text style={s.text}>{Math.min(level, target)} / {target} · {rewards[index]}</Text>
-        <Pressable accessibilityRole="button" disabled={!ready} style={[s.button, !ready && { opacity: 0.45 }]} onPress={() => {
+        <Pressable accessibilityRole="button" disabled={!ready || serverLocked} style={[s.button, (!ready || serverLocked) && { opacity: 0.45 }]} onPress={() => {
           if ((latest.current.wardenRewardsClaimed ?? 0) !== index) return;
+          if (serverCommand) { serverCommand({ type: 'claimWardenReward' }); return; }
           const next = claimWardenReward(latest.current);
           if (next === latest.current) return;
           if (!commit(next)) { Alert.alert(ko ? '저장 실패' : 'Save failed'); return; }

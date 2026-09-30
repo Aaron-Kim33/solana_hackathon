@@ -847,9 +847,6 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               <Pressable accessibilityRole="button" onPress={() => setPanel(null)} style={styles.languageButton}><Text style={styles.walletText}>{t('close')}</Text></Pressable>
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
-      {online && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') && <Text style={{ color: '#FFD18E', paddingVertical: 10 }}>
-        {language === 'ko' ? '서버 저장: 퀘스트 보상과 보석 개봉·합성·목재 뽑기·옵션 장착을 사용할 수 있어요. 심림 숙련 보상과 특성은 아직 연결 전이에요.' : 'Server save: Quest rewards, gem opening, fusion, wood draws and option equipping are available. Deepwood mastery rewards and talents are not connected yet.'}
-      </Text>}
       {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') &&
         <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
       {panel === 'menu' && <View style={styles.achievement}>
@@ -870,7 +867,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       </View>}
       {panel === 'guide' && <PlayGuide progress={progress} saveMode={online ? 'server' : server ? 'practice' : 'local'} onQuests={() => setPanel('quests')} onGems={() => setPanel('gems')} />}
       {panel === 'quests' && <View>
-        {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit} />}
+        {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
+          serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}
       {__DEV__ && !online && devWalletSkip && <Text style={styles.progressLabel}>
         {language === 'ko' ? '개발 테스트: 지갑 퀘스트 화면만 건너뜀 · 실제 연결/서버 저장/기록은 미완료' : 'Development test: wallet quest display skipped only · wallet, server save and record are incomplete'}
       </Text>}

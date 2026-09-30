@@ -291,7 +291,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
     </>}
 
     {page === 'talents' && <>
-      <Text style={s.text}>{t('talentsHint')}</Text>
+      <Text style={s.text}>{t(serverCommand ? 'serverTalentsComingSoon' : 'talentsHint')}</Text>
       <Text style={s.bonus}>{t('ownedWood', progress.wood)}</Text>
       {TALENT_IDS.map(id => {
         const rank = progress.talents[id], maxed = rank >= TALENT_MAX[id];
@@ -302,14 +302,14 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
           <View style={s.heading}><Text style={s.title}>{t(title)}</Text><Text style={s.muted}>Lv. {rank} / {TALENT_MAX[id]}</Text></View>
           <Text style={s.text}>{t(hint)}</Text>
           <Text style={s.statNumber}>{current}%{!maxed && ` → ${next}%`}</Text>
-          {button(t(maxed ? 'maxLevel' : rank === 0 ? 'unlockTalent' : 'upgradeCost', talentCost(id, rank)), () => {
+          {button(serverCommand ? t('serverTalentsUnavailable') : t(maxed ? 'maxLevel' : rank === 0 ? 'unlockTalent' : 'upgradeCost', talentCost(id, rank)), () => {
             // Use the latest saved state, including during quick repeated taps.
             const upgraded = upgradeTalent(latest.current, id);
             if (upgraded !== latest.current) {
               if (commit(upgraded)) latest.current = upgraded;
               else Alert.alert(t('talents'), t('saveError'));
             }
-          }, maxed || progress.wood < talentCost(id, rank))}
+          }, !!serverCommand || maxed || progress.wood < talentCost(id, rank))}
         </View>;
       })}
     </>}

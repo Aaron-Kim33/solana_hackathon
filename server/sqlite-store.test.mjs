@@ -96,6 +96,26 @@ test('server growth reward, gem opening and slot quest are atomic, single-use an
   assert.equal(reopened.audit('alice').length, 3);
   assert.equal(reopened.load('bob').progress.growthRewardClaimed, false);
 });
+test('Deepwood mastery claim is server-owned, single-use and survives reopening', t => {
+  const { store, open, path } = fixture(t);
+  const eligible = { ...initialProgress('ko'), treeLevel: 101, treeHp: treeHealth(101),
+    axeSkin: 'warden', axeLevel: 150 };
+  const db = new DatabaseSync(path);
+  db.prepare('UPDATE players SET progress = ? WHERE id = ?').run(JSON.stringify(eligible), 'alice');
+  db.close();
+  const claim = { requestId: 'warden_claim_1', expectedRevision: 0, command: { type: 'claimWardenReward' } };
+  const claimed = store.execute('alice', claim);
+  assert.equal(claimed.progress.wardenRewardsClaimed, 1);
+  assert.equal(claimed.progress.gems.high, 1);
+  assert.deepEqual(store.execute('alice', claim), claimed);
+  assert.throws(() => store.execute('alice', { ...claim, requestId: 'warden_claim_2', expectedRevision: 1 }), /ACTION_UNAVAILABLE/);
+  assert.equal(store.audit('alice').length, 1);
+  store.close();
+  const reopened = open();
+  assert.deepEqual(reopened.execute('alice', claim), claimed);
+  assert.equal(reopened.load('alice').progress.gems.high, 1);
+  assert.equal(reopened.load('bob').progress.wardenRewardsClaimed ?? 0, 0);
+});
 test('wallet quest grants 20 server coins once, including completed legacy accounts', t => {
   const { store, open, path } = fixture(t);
   const db = new DatabaseSync(path);
