@@ -26,6 +26,7 @@ import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
 import { CommunityWorld } from './src/game/CommunityWorld';
+import { SquirrelExpedition } from './src/game/SquirrelExpedition';
 import { ForestMap } from './src/game/ForestMap';
 import { WorldBossWorld } from './src/game/WorldBossWorld';
 import { PlayGuide } from './src/game/PlayGuide';
@@ -131,7 +132,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const serverRef = useRef(server); serverRef.current = server;
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
-  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
+  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'pet' | 'tree' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
@@ -161,6 +162,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     if (panel === 'quests') panelScroll.current?.scrollTo({ y: 0, animated: false });
   }, [panel, visibleQuests.active]);
   const [now, setNow] = useState(Date.now());
+  const squirrel = online ? server!.snapshot?.squirrel : undefined;
+  const squirrelHome = !!squirrel?.owned && (!squirrel.trip || server!.now >= squirrel.trip.returnsAt);
+  const squirrelAttention = !!squirrel && ((!squirrel.owned && squirrel.questReady) || (!!squirrel.trip && server!.now >= squirrel.trip.returnsAt));
   const countdown = recoveryCountdown(progress.recoveryAt, online ? server!.now : now);
   const [logs, setLogs] = useState<Log[]>([]);
   const tutorialStep = nextTutorial(progress, tutorialSeenMask, logs.length, panel !== null, now < tutorialCoolUntil);
@@ -762,19 +766,26 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           forestRef.current?.measureInWindow((x, y, width, height) => { forestBounds.current = { x, y, width, height }; });
         }}>
         {progress.treeLevel >= 101 && <Text pointerEvents="none" style={{ position: 'absolute', top: 8, alignSelf: 'center', color: '#CFB6F2', fontWeight: '800' }}>{t('secondForest')}</Text>}
-        <Pressable accessibilityRole="button" accessibilityLabel={t('openAxe')} hitSlop={8}
-          onPress={() => { if (tutorialStep === 'axe') completeTutorial('axe'); setPanel('axe'); }} style={({ pressed }) => [styles.forestAxe, tutorialStep === 'axe' && styles.tutorialTargetGlow, pressed && { opacity: 0.65 }]}>
-          <AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} />
-          {axeUpgradeReady(progress) && <View pointerEvents="none" style={styles.forestAxeUpgradeDot} />}
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('gemFusion')}
-          onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestGem, pressed && { opacity: 0.65 }]}>
-          <GemArt tier="high" size={44} />
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
-          onPress={() => setPanel('map')} style={({ pressed }) => [styles.forestMapButton, pressed && { opacity: 0.65 }]}>
-          <Text style={styles.forestMapIcon}>🗺️</Text>
-        </Pressable>
+        <View style={styles.forestShortcutRail}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('openAxe')}
+            onPress={() => { if (tutorialStep === 'axe') completeTutorial('axe'); setPanel('axe'); }} style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'axe' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
+            <View pointerEvents="none" style={styles.forestAxeIcon}><View style={styles.forestAxeIconScaled}><AxeArt crowned={progress.wardenRewardsClaimed === 3} commemorative={progress.axeSkin === 'firstRecord'} pioneer={progress.axeSkin === 'pioneer'} warden={progress.axeSkin === 'warden'} recovery={progress.axeSkin === 'recovery'} /></View></View>
+            {axeUpgradeReady(progress) && <View pointerEvents="none" style={styles.forestShortcutDot} />}
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('gemFusion')}
+            onPress={() => setPanel('gems')} style={({ pressed }) => [styles.forestShortcut, pressed && styles.forestShortcutPressed]}>
+            <GemArt tier="high" size={37} />
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
+            onPress={() => setPanel('map')} style={({ pressed }) => [styles.forestShortcut, pressed && styles.forestShortcutPressed]}>
+            <Text style={styles.forestMapIcon}>🗺️</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '다람쥐 펫 탐험 열기' : 'Open squirrel expeditions'}
+            onPress={() => setPanel('pet')} style={({ pressed }) => [styles.forestShortcut, !squirrel?.owned && styles.forestShortcutUnowned, pressed && styles.forestShortcutPressed]}>
+            <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestPetIcon} resizeMode="contain" />
+            {squirrelAttention && <View pointerEvents="none" style={styles.forestShortcutDot} />}
+          </Pressable>
+        </View>
         <View pointerEvents="box-none" style={styles.forestCharacter}>
           <ForesterSprite motion={swing} skin={progress.axeSkin}
             crowned={progress.wardenRewardsClaimed === 3} size={155} />
@@ -815,6 +826,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         {damagePopups.map((popup) => (
           <FloatingDamage key={popup.id} popup={popup} />
         ))}
+        {squirrelHome && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '돌아온 다람쥐 · 펫 탐험 열기' : 'Returned squirrel · open expeditions'}
+          onPress={() => setPanel('pet')} style={styles.forestReturnedPet}>
+          <Image source={require('./assets/pets/squirrel-v1.png')} style={styles.forestReturnedPetArt} resizeMode="contain" />
+        </Pressable>}
         {autoPickupNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={{ position: 'absolute', bottom: 12, alignSelf: 'center', color: '#FFE19C', backgroundColor: '#153936', borderRadius: 12, padding: 8, fontWeight: '800' }}>{t('autoCollected', autoPickupNotice.value)}</Text>}
         <View ref={storageRef} collapsable={false} style={[styles.storageTarget, tutorialStep === 'storage' && styles.tutorialTargetGlow]}>
           <View pointerEvents="none" style={styles.storageArt}>
@@ -869,11 +884,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('close')} onPress={() => setPanel(null)} />
           <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.panelHeader}>
-              <Text style={styles.statValue}>{t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
+              <Text style={styles.statValue}>{panel === 'pet' ? language === 'ko' ? '다람쥐 탐험' : 'Squirrel expedition' : t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
               <Pressable accessibilityRole="button" onPress={() => setPanel(null)} style={styles.languageButton}><Text style={styles.walletText}>{t('close')}</Text></Pressable>
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
-      {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe') &&
+      {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe' || (panel === 'pet' && /다람쥐|squirrel/i.test(server!.notice))) &&
         <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
       {panel === 'menu' && <View style={styles.achievement}>
         {server?.controls}
@@ -892,6 +907,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
       </View>}
       {panel === 'guide' && <PlayGuide progress={progress} saveMode={online ? 'server' : server ? 'practice' : 'local'} onQuests={() => setPanel('quests')} onGems={() => setPanel('gems')} />}
+      {panel === 'pet' && <SquirrelExpedition pet={squirrel} community={online ? server!.snapshot?.community : undefined}
+        now={online ? server!.now : now} treeLevel={progress.treeLevel} language={language}
+        command={online ? server!.command : () => false} locked={!online || server!.busy || server!.pending || server!.queued > 0} />}
       {panel === 'quests' && <View>
         {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
           serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}
@@ -1153,17 +1171,22 @@ const styles = StyleSheet.create({
   axeBlade: { position: 'absolute', top: 0, left: -20, width: 44, height: 30, borderRadius: 7, backgroundColor: '#C3D9D3', borderLeftWidth: 7, borderLeftColor: '#F0F4E5' },
   axeRune: { position: 'absolute', top: 8, left: 12, width: 9, height: 13, borderRadius: 2, backgroundColor: '#C1FFEF', transform: [{ rotate: '30deg' }] },
   axeBand: { position: 'absolute', top: 48, width: 10, height: 12, backgroundColor: '#14F195' },
-  forestAxe: { position: 'absolute', top: 12, left: 18, zIndex: 8, transform: [{ scale: 0.7 }] },
-  forestAxeUpgradeDot: { position: 'absolute', top: 12, right: -5, width: 14, height: 14,
-    borderRadius: 7, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
+  forestShortcutRail: { position: 'absolute', top: 12, left: 18, zIndex: 12, gap: 8 },
+  forestShortcut: { width: 52, height: 52, borderRadius: 15, borderWidth: 1, borderColor: '#B8D3A7',
+    backgroundColor: '#1D4744DE', alignItems: 'center', justifyContent: 'center' },
+  forestShortcutPressed: { opacity: 0.65 }, forestShortcutUnowned: { opacity: 0.78 },
+  forestShortcutDot: { position: 'absolute', top: -3, right: -3, width: 12, height: 12,
+    borderRadius: 6, backgroundColor: '#FFD54F', borderWidth: 2, borderColor: '#604A14' },
+  forestAxeIcon: { width: 50, height: 50, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  forestAxeIconScaled: { width: 60, height: 95, transform: [{ scale: 0.5 }] },
+  forestPetIcon: { width: 43, height: 43 },
+  forestReturnedPet: { position: 'absolute', left: 31, bottom: 89, width: 82, height: 85, zIndex: 7 },
+  forestReturnedPetArt: { width: 82, height: 85 },
   forestCharacter: { position: 'absolute', left: '25%', bottom: 18, width: 155, height: 155, zIndex: 5 },
   characterFaceTarget: { position: 'absolute', left: 46, top: 26, width: 67, height: 59, borderRadius: 30 },
   characterFaceHint: { borderWidth: 2, borderColor: '#FFE494', backgroundColor: '#FFE4941A' },
   holdGlow: { position: 'absolute', left: '49%', bottom: '25%', width: 92, height: 92, borderRadius: 46, backgroundColor: '#FFF4A3', zIndex: 4 },
-  forestGem: { position: 'absolute', top: 104, left: 24, zIndex: 8, width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  forestMapButton: { position: 'absolute', top: 164, left: 24, zIndex: 8, width: 48, height: 48, borderRadius: 14,
-    backgroundColor: '#1D4744DE', borderWidth: 1, borderColor: '#B8D3A7', alignItems: 'center', justifyContent: 'center' },
-  forestMapIcon: { fontSize: 26 },
+  forestMapIcon: { fontSize: 25 },
   storageTarget: { position: 'absolute', left: 10, bottom: 3, zIndex: 8, width: 116, height: 95, alignItems: 'center', justifyContent: 'flex-end' },
   storageArt: { width: 85, height: 57, alignItems: 'center', justifyContent: 'flex-end' },
   storageTop: { position: 'absolute', top: 3, width: 84, height: 16, borderRadius: 5, backgroundColor: '#C28A4D', borderWidth: 3, borderColor: '#EDC079', zIndex: 1 },
