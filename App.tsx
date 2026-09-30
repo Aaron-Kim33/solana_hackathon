@@ -25,7 +25,7 @@ import { CharacterPanel } from './src/game/CharacterPanel';
 import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
-import { CommunityPanel } from './src/game/CommunityPanel';
+import { CommunityWorld } from './src/game/CommunityWorld';
 import { ForestMap } from './src/game/ForestMap';
 import { PlayGuide } from './src/game/PlayGuide';
 import { TutorialNudge } from './src/game/TutorialNudge';
@@ -993,8 +993,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         onRequestClose={() => setPanel(panel === 'community' ? 'map' : null)}>
         <SafeAreaView style={styles.mapSurface}>
           <StatusBar style="light" />
-          <Image source={require('./assets/forest/background.png')} resizeMode="cover" style={StyleSheet.absoluteFill} />
-          <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.mapShade]} />
+          {panel === 'map' && <Image source={require('./assets/forest/background.png')} resizeMode="cover" style={StyleSheet.absoluteFill} />}
+          {panel === 'map' && <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.mapShade]} />}
           <View style={styles.mapHeader}>
             <Pressable accessibilityRole="button" onPress={() => setPanel(panel === 'community' ? 'map' : null)} style={styles.mapBack}>
               <Text style={styles.mapBackText}>{panel === 'community' ? language === 'ko' ? '‹ 지도' : '‹ Map' : language === 'ko' ? '‹ 숲' : '‹ Forest'}</Text>
@@ -1002,12 +1002,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <Text style={styles.mapTitle}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
             <View style={{ width: 64 }} />
           </View>
-          <ScrollView contentContainerStyle={styles.mapContent}>
-            {panel === 'map' && <ForestMap language={language} communityReady={online && !!server!.snapshot?.community}
-              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }} />}
-            {panel === 'community' && online && server!.snapshot?.community && <CommunityPanel state={server!.snapshot.community} language={language}
-              command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />}
-          </ScrollView>
+          {panel === 'map' ? <ScrollView contentContainerStyle={styles.mapContent}>
+            <ForestMap language={language} communityReady={online && !!server!.snapshot?.community}
+              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }} />
+          </ScrollView> : online && server!.snapshot?.community && <CommunityWorld state={server!.snapshot.community} language={language}
+            command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
