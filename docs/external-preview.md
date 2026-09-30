@@ -1,4 +1,6 @@
-# External Devnet test build — configuration, not deployment
+# External Devnet test build — setup and deployment history
+
+> Current as of 2026-09-30: the Railway preview API is publicly reachable and `/health` reports `trolley-v1` and `starter-wood-10`; `https://lumber.mellowcat.xyz` serves the wallet identity icon. An older EAS preview APK exists, but the newest trolley/start-wood code has **not** been built into a signed APK: the 9/30 EAS request hit the monthly free Android build limit, expected to reset on 10/1. The sections below document the earlier setup process and contain historical statements such as “not deployed” that are no longer current. Follow `docs/CLOCK-IN-DELIVERY.md` for the latest verified state.
 
 ## Current status
 
