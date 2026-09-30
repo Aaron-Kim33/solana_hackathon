@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import { starterProgress, parseProgress, hit, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
+import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
@@ -12,7 +13,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 5) throw new Error('DATABASE_VERSION_UNSUPPORTED');
+    if (version > 6) throw new Error('DATABASE_VERSION_UNSUPPORTED');
     db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS players (
@@ -42,14 +43,55 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       CREATE TABLE IF NOT EXISTS wallet_coin_grants (
         player_id TEXT PRIMARY KEY REFERENCES players(id), granted_at INTEGER NOT NULL
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS community_activity (
+        player_id TEXT NOT NULL REFERENCES players(id), day_start INTEGER NOT NULL,
+        hits INTEGER NOT NULL DEFAULT 0, bundles INTEGER NOT NULL DEFAULT 0,
+        trolleys INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(player_id, day_start)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS community_claims (
+        player_id TEXT NOT NULL REFERENCES players(id), period_start INTEGER NOT NULL,
+        quest_id TEXT NOT NULL, claimed_at INTEGER NOT NULL,
+        PRIMARY KEY(player_id, period_start, quest_id)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS community_balances (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL,
+        materials INTEGER NOT NULL CHECK(materials >= 0),
+        PRIMARY KEY(player_id, week_start)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS community_contributions (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL,
+        facility TEXT NOT NULL CHECK(facility IN ('mine','saplings')),
+        amount INTEGER NOT NULL CHECK(amount >= 0),
+        PRIMARY KEY(player_id, week_start, facility)
+      ) STRICT;
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
-      PRAGMA user_version = 5;
+      PRAGMA user_version = 6;
       COMMIT;
     `);
   } catch (error) { db.close(); throw error; }
   const id = value => {
     if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(value)) throw new Error('INVALID_PLAYER_ID');
     return value;
+  };
+  const communitySnapshot = (accountId, time) => {
+    const dayStart = communityDayStart(time), weekStart = communityWeekStart(time);
+    const today = db.prepare('SELECT hits,bundles,trolleys FROM community_activity WHERE player_id=? AND day_start=?').get(accountId, dayStart) ?? { hits: 0, bundles: 0, trolleys: 0 };
+    const week = db.prepare('SELECT COALESCE(SUM(hits),0) AS hits,COALESCE(SUM(bundles),0) AS bundles,COALESCE(SUM(trolleys),0) AS trolleys FROM community_activity WHERE player_id=? AND day_start>=? AND day_start<?').get(accountId, weekStart, weekStart + 7 * 86_400_000);
+    const claims = new Set(db.prepare('SELECT period_start,quest_id FROM community_claims WHERE player_id=? AND period_start IN (?,?)').all(accountId, dayStart, weekStart).map(row => `${row.period_start}:${row.quest_id}`));
+    const materials = db.prepare('SELECT materials FROM community_balances WHERE player_id=? AND week_start=?').get(accountId, weekStart)?.materials ?? 0;
+    const lastWeek = weekStart - 7 * 86_400_000;
+    const targetUnit = Math.max(1, Math.min(10_000, db.prepare('SELECT COUNT(DISTINCT player_id) AS count FROM community_claims WHERE claimed_at>=? AND claimed_at<?').get(lastWeek, weekStart).count));
+    const facilities = COMMUNITY_FACILITIES.map(facility => {
+      const total = db.prepare('SELECT COALESCE(SUM(amount),0) AS total FROM community_contributions WHERE week_start=? AND facility=?').get(weekStart, facility).total;
+      const mine = db.prepare('SELECT amount FROM community_contributions WHERE player_id=? AND week_start=? AND facility=?').get(accountId, weekStart, facility)?.amount ?? 0;
+      const level = communityFacilityLevel(total, targetUnit);
+      return { id: facility, total, mine, level, nextTarget: level >= 5 ? null : COMMUNITY_LEVEL_STEPS[level - 1] * targetUnit };
+    });
+    return { dayStart, weekStart, materials, targetUnit, facilities,
+      myContribution: facilities.reduce((sum, facility) => sum + facility.mine, 0),
+      quests: COMMUNITY_QUESTS.map(quest => ({ id: quest.id,
+      progress: (quest.period === 'daily' ? today : week)[quest.metric], target: quest.target, materials: quest.materials,
+      claimed: claims.has(`${quest.period === 'daily' ? dayStart : weekStart}:${quest.id}`) })) };
   };
   const load = accountId => {
     const row = db.prepare('SELECT * FROM players WHERE id = ?').get(id(accountId));
@@ -58,6 +100,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     const time = now();
     const walletCoinRewardClaimed = !!db.prepare('SELECT 1 FROM wallet_coin_grants WHERE player_id = ?').get(accountId);
     return { revision: row.revision, provenance: row.provenance, progress: parseProgress(row.progress), walletCoinRewardClaimed,
+      community: communitySnapshot(accountId, time),
       drops: play ? JSON.parse(play.drops).filter(drop => drop.expiresAt > time) : [], serverTime: time };
   };
   return {
@@ -72,7 +115,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -85,7 +128,28 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         const before = load(accountId);
         const time = now(), c = r.command;
         let after;
-        if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
+        if (c.type === 'contributeCommunity') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          if (communitySnapshot(accountId, time).materials < c.amount) throw new Error('ACTION_UNAVAILABLE');
+          const weekStart = communityWeekStart(time);
+          db.prepare('UPDATE community_balances SET materials=materials-? WHERE player_id=? AND week_start=?').run(c.amount, accountId, weekStart);
+          db.prepare('INSERT INTO community_contributions VALUES (?,?,?,?) ON CONFLICT(player_id,week_start,facility) DO UPDATE SET amount=amount+excluded.amount')
+            .run(accountId, weekStart, c.facility, c.amount);
+          after = { ...before, revision: before.revision + 1 };
+        } else if (c.type === 'claimCommunityQuest') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          const quest = COMMUNITY_QUESTS.find(item => item.id === c.questId);
+          const status = communitySnapshot(accountId, time).quests.find(item => item.id === c.questId);
+          if (!quest || !status || status.claimed || status.progress < status.target) throw new Error('ACTION_UNAVAILABLE');
+          const periodStart = quest.period === 'daily' ? communityDayStart(time) : communityWeekStart(time);
+          const weekStart = communityWeekStart(time);
+          db.prepare('INSERT INTO community_claims VALUES (?,?,?,?)').run(accountId, periodStart, quest.id, time);
+          db.prepare('INSERT INTO community_balances VALUES (?,?,?) ON CONFLICT(player_id,week_start) DO UPDATE SET materials=materials+excluded.materials')
+            .run(accountId, weekStart, quest.materials);
+          after = { ...before, revision: before.revision + 1 };
+        } else if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
@@ -164,6 +228,14 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           db.prepare('INSERT INTO play_state (player_id,last_action,collect_until,drops,last_hit) VALUES (?,?,?,?,?) ON CONFLICT(player_id) DO UPDATE SET last_action=excluded.last_action,collect_until=excluded.collect_until,drops=excluded.drops,last_hit=excluded.last_hit')
             .run(accountId, time, ['collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(c.type) ? time + 250 : 0, JSON.stringify(drops), lastHit);
         } else after = createMemoryGameService(before, random).execute(r);
+        if (c.type === 'hit' || c.type === 'hitBatch' || c.type === 'collectDrop' || c.type === 'loadTrolley' || c.type === 'loadTrolleyBatch' || c.type === 'collectTrolley') {
+          const hits = after.progress.totalHits - before.progress.totalHits;
+          const bundles = c.type === 'collectDrop' || c.type === 'loadTrolley' ? 1 : c.type === 'loadTrolleyBatch' ? c.dropIds.length : 0;
+          const trolleys = c.type === 'collectTrolley' ? 1 : 0;
+          db.prepare('INSERT INTO community_activity VALUES (?,?,?,?,?) ON CONFLICT(player_id,day_start) DO UPDATE SET hits=hits+excluded.hits,bundles=bundles+excluded.bundles,trolleys=trolleys+excluded.trolleys')
+            .run(accountId, communityDayStart(time), hits, bundles, trolleys);
+        }
+        after.community = communitySnapshot(accountId, time);
         // Validate the result before making all three writes visible atomically.
         parseProgress(JSON.stringify(after.progress));
         db.prepare('UPDATE players SET revision = ?, progress = ? WHERE id = ?').run(after.revision, JSON.stringify(after.progress), accountId);

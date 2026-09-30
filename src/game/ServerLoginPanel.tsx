@@ -43,7 +43,7 @@ async function api(path: string, payload?: unknown, token?: string) {
 export type ServerController = {
   snapshot: PlayerSnapshot | null; busy: boolean; queued: number; pending: boolean; now: number; trolleySupported: boolean;
   canChop: boolean; controls: ReactNode; notice: string;
-  connect: () => void;
+  connect: () => void; refresh: () => void;
   hit: () => boolean; command: (command: GameCommand) => boolean; dragging: (value: boolean) => void;
   record: () => Promise<void>; checkRecord: () => Promise<void>;
 };
@@ -363,6 +363,12 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   return renderMain({ snapshot: state, busy: busy || restoring, queued, pending: sessionCache.pending !== null, trolleySupported,
     get now() { return Date.now() + serverClockOffset; }, canChop: !!token.current && canQueueServerHit(input), notice,
     connect: () => { if (!restoring) void run(false); },
+    refresh: () => { if (!lock.current && !inputQueue.current.size && !sessionCache.pending && token.current) {
+      lock.current = true; setBusy(true);
+      void api('/me', undefined, token.current).then(updateState)
+        .catch(() => setNotice(ko ? '공동 숲을 새로고침하지 못했어요.' : 'Could not refresh the community forest.'))
+        .finally(() => { lock.current = false; setBusy(false); });
+    } },
     hit: enqueueHit, dragging: setCollecting, record, checkRecord,
     command: command => !collecting.current && enqueue(command),
     controls: <View style={{ gap: 10 }}>

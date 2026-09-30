@@ -1,6 +1,9 @@
 import type { GemTier, OptionId, Progress } from '../game/progression';
 import type { PaymentCurrency, ProductId } from './catalog';
+import type { CommunityQuestId, CommunityFacilityId, CommunitySnapshot } from './community';
 export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } | { type: 'claimWardenReward' }
+  | { type: 'claimCommunityQuest'; questId: CommunityQuestId }
+  | { type: 'contributeCommunity'; facility: CommunityFacilityId; amount: number }
   | { type: 'claimGrowthReward' } | { type: 'openGem'; tier: GemTier } | { type: 'equipOption'; slot: 0 | 1; item: OptionId }
   | { type: 'hit' } | { type: 'hitBatch'; count: number } | { type: 'collectDrop'; dropId: string }
   | { type: 'loadTrolley'; dropId: string } | { type: 'loadTrolleyBatch'; dropIds: string[] } | { type: 'collectTrolley' } | { type: 'recover' } | { type: 'regrow' } | { type: 'upgradeTree' }
@@ -9,6 +12,7 @@ export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } 
 export type CommandRequest = { requestId: string; expectedRevision: number; command: GameCommand };
 export type ServerDrop = { id: string; value: number; expiresAt: number };
 export type PlayerSnapshot = { revision: number; provenance: 'local-test' | 'server'; progress: Progress;
+  community?: CommunitySnapshot;
   drops?: ServerDrop[]; serverTime?: number; lastDamage?: number; walletCoinRewardClaimed?: boolean;
   hitEvents?: { hit: number; damage: number; critical: boolean }[] };
 // Account identity must come from authenticated server sessions, not command payloads.

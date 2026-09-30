@@ -25,6 +25,7 @@ import { CharacterPanel } from './src/game/CharacterPanel';
 import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
 import { WardenQuests } from './src/game/DeepwoodContent';
+import { CommunityPanel } from './src/game/CommunityPanel';
 import { PlayGuide } from './src/game/PlayGuide';
 import { TutorialNudge } from './src/game/TutorialNudge';
 import { nextTutorial, tutorialBit, type TutorialStep } from './src/game/tutorial';
@@ -123,7 +124,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const serverRef = useRef(server); serverRef.current = server;
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
-  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
+  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'community' | 'character' | 'axe' | 'gems' | 'tree' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
@@ -843,7 +844,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('close')} onPress={() => setPanel(null)} />
           <View style={styles.modalCard} accessibilityViewIsModal>
             <View style={styles.panelHeader}>
-              <Text style={styles.statValue}>{t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
+              <Text style={styles.statValue}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : t(panel === 'quests' ? 'questTitle' : panel === 'gems' ? 'gemFusion' : panel === 'character' || panel === 'axe' ? 'character' : panel === 'tree' ? 'tree' : 'menu')}</Text>
               <Pressable accessibilityRole="button" onPress={() => setPanel(null)} style={styles.languageButton}><Text style={styles.walletText}>{t('close')}</Text></Pressable>
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
@@ -858,6 +859,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           catch { Alert.alert(language === 'ko' ? '저장 실패' : 'Save failed'); }
         }} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '개발용 지갑 퀘스트 건너뛰기 해제' : 'Undo development wallet quest skip'}</Text></Pressable>}
         <Pressable onPress={() => setPanel('quests')} style={styles.languageButton}><Text style={styles.statValue}>{t('questTitle')}</Text></Pressable>
+        {online && server!.snapshot?.community && <Pressable accessibilityRole="button" onPress={() => { setPanel('community'); server!.refresh(); }} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '공동 숲' : 'Community forest'}</Text></Pressable>}
         <Pressable onPress={() => setPanel('character')} style={styles.languageButton}><Text style={styles.statValue}>{t('character')}</Text></Pressable>
         <View style={styles.languageRow}>
           <Text style={styles.progressLabel}>{t('language')}</Text>
@@ -866,6 +868,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>
       </View>}
       {panel === 'guide' && <PlayGuide progress={progress} saveMode={online ? 'server' : server ? 'practice' : 'local'} onQuests={() => setPanel('quests')} onGems={() => setPanel('gems')} />}
+      {panel === 'community' && online && server!.snapshot?.community && <CommunityPanel state={server!.snapshot.community} language={language} command={server!.command}
+        locked={server!.busy || server!.pending || server!.queued > 0} />}
       {panel === 'quests' && <View>
         {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
           serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}

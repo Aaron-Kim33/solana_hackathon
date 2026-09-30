@@ -1,5 +1,6 @@
 import { claimGrowthReward, claimWardenReward, drawWoodGem, equip, fuseGems, GEM_TIERS, openGem, OPTION_ITEMS } from '../src/game/progression.ts';
 import type { CommandRequest, PlayerSnapshot } from '../src/shared/server-contract.ts';
+import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES } from '../src/shared/community.ts';
 export function parseRequest(value: unknown): CommandRequest {
   if (!value || typeof value !== 'object') throw new Error('INVALID_COMMAND');
   const r = value as CommandRequest;
@@ -10,6 +11,18 @@ export function parseRequest(value: unknown): CommandRequest {
     if (!Number.isInteger(c.stage) || c.stage < 0 || c.stage > 5 ||
       Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
       Object.keys(c).some(key => !['type', 'stage'].includes(key))) throw new Error('INVALID_COMMAND');
+    return r;
+  }
+  if (c.type === 'claimCommunityQuest') {
+    if (!COMMUNITY_QUESTS.some(quest => quest.id === c.questId) ||
+      Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
+      Object.keys(c).some(key => !['type', 'questId'].includes(key))) throw new Error('INVALID_COMMAND');
+    return r;
+  }
+  if (c.type === 'contributeCommunity') {
+    if (!COMMUNITY_FACILITIES.includes(c.facility) || !Number.isSafeInteger(c.amount) || c.amount < 1 || c.amount > 150 ||
+      Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
+      Object.keys(c).some(key => !['type', 'facility', 'amount'].includes(key))) throw new Error('INVALID_COMMAND');
     return r;
   }
   if (!['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'openGem', 'equipOption', 'fuse', 'drawGem', 'claimWardenReward', 'hit', 'hitBatch', 'collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley', 'recover', 'regrow', 'upgradeTree', 'upgradeAxe', 'equipAxe'].includes(c.type) || (c.type === 'equipAxe' && !['default', 'firstRecord', 'pioneer', 'warden', 'recovery'].includes(c.skin)) || (c.type === 'hitBatch' && (!Number.isInteger(c.count) || c.count < 1 || c.count > 4)) || ((c.type === 'fuse' || c.type === 'openGem') && !GEM_TIERS.includes(c.tier)) ||

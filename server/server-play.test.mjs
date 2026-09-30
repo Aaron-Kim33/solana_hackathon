@@ -23,7 +23,7 @@ test('existing version-four play data gains a hit clock without losing saved dro
   const store = openGameStore(path);
   t.after(() => { store.close(); rmSync(folder, { recursive: true, force: true }); });
   const migrated = new DatabaseSync(path);
-  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 5);
+  assert.equal(migrated.prepare('PRAGMA user_version').get().user_version, 6);
   assert.deepEqual({ ...migrated.prepare('SELECT last_action, collect_until, drops, last_hit FROM play_state WHERE player_id=?').get('alice') },
     { last_action: 123, collect_until: 456, drops: '[]', last_hit: 0 });
   migrated.close();

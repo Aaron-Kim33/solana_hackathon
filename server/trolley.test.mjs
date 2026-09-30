@@ -32,6 +32,7 @@ test('trolley loads a live drop, banks once, and survives a server restart', t =
   assert.equal(loaded.progress.wood, 0);
   assert.equal(loaded.progress.harvested, 0);
   assert.equal(loaded.drops.length, 0);
+  assert.equal(loaded.community.quests.find(q => q.id === 'd_bundles').progress, 1);
   assert.deepEqual(store.execute('alice', load), loaded);
   store.close();
   const resumed = open();
@@ -44,6 +45,7 @@ test('trolley loads a live drop, banks once, and survives a server restart', t =
   assert.equal(dispatched.progress.trolleyWood, drop.value);
   assert.equal(dispatched.progress.wood, 0);
   assert.equal(dispatched.progress.trolleyTrip.arrivesAt, time + 3000);
+  assert.equal(dispatched.community.quests.find(q => q.id === 'd_trolley').progress, 1);
   assert.deepEqual(resumed.execute('alice', bank), dispatched);
   time += 300;
   assert.throws(() => resumed.execute('alice', { ...bank, requestId: 'trolley_bank_again', expectedRevision: 3 }), /ACTION_UNAVAILABLE/);
