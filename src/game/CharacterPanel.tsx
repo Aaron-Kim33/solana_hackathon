@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 import { BuffPanel } from './BuffPanel';
 import { ForesterSprite } from './ForesterSprite';
 import { GemPackages } from './DeepwoodContent';
@@ -118,8 +119,8 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       <View style={s.equipmentHero}><InventoryAxe skin={progress.axeSkin} crowned={progress.wardenRewardsClaimed === 3} /><View style={s.grow}>
         <View style={s.heading}><Text style={[s.title, { flex: 1 }]}>{name(progress.axeSkin)}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel={t('changeEquipment')}
-            onPress={() => { setSelected(progress.axeSkin); go('wardrobe'); }} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: '#BDE9D8', fontSize: 28 }}>⌄</Text>
+            onPress={() => { setSelected(progress.axeSkin); go('wardrobe'); }} style={({ pressed }) => [s.changeAxeButton, pressed && { opacity: 0.75 }]}>
+            <Text style={s.changeAxeText}>{t('changeAxeShort')}</Text>
           </Pressable></View><Text style={s.muted}>Lv. {progress.axeLevel} / {AXE_MAX}</Text>
         <Text style={s.statNumber}>{t('attackPower')} {range(stats)}</Text>
       </View></View>
@@ -360,6 +361,8 @@ const s = StyleSheet.create({
   back: { paddingVertical: 12, paddingHorizontal: 8 }, button: { padding: 15, backgroundColor: '#EFC75E', borderRadius: 14, alignItems: 'center' },
   buttonText: { color: '#3A3224', fontWeight: '900', fontSize: 14 }, disabled: { opacity: 0.4 },
   equipmentHero: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#224749', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  changeAxeButton: { minWidth: 64, minHeight: 44, flexShrink: 0, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center', borderRadius: 10, backgroundColor: '#EFC75E' },
+  changeAxeText: { color: '#3A3224', fontSize: 13, fontWeight: '800' },
   upgradeCard: { paddingHorizontal: 14, paddingVertical: 10, gap: 6, borderRadius: 16, borderWidth: 1, borderColor: '#8D783F', backgroundColor: '#193A3C' },
   slot: { flex: 1, alignItems: 'center', gap: 8, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#42645B', backgroundColor: '#183638' },
   slotFilled: { borderColor: '#76AE96' }, slotIcon: { fontSize: 25, color: '#93CBA9' }, selected: { borderColor: '#EFC75E', backgroundColor: '#2A4A42' },

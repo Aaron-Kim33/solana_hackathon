@@ -7,6 +7,11 @@ export function parseRequest(value: unknown): CommandRequest {
   if (typeof r.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(r.requestId) ||
     !Number.isSafeInteger(r.expectedRevision) || r.expectedRevision < 0 || !r.command || typeof r.command !== 'object') throw new Error('INVALID_COMMAND');
   const c = r.command;
+  if (c.type === 'activateBlessing') {
+    if (Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
+      Object.keys(c).some(key => key !== 'type')) throw new Error('INVALID_COMMAND');
+    return r;
+  }
   if (c.type === 'claimAdventure') {
     if (!Number.isInteger(c.stage) || c.stage < 0 || c.stage > 5 ||
       Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
@@ -31,7 +36,7 @@ export function parseRequest(value: unknown): CommandRequest {
       Object.keys(c).some(key => !['type', 'destination'].includes(key))) throw new Error('INVALID_COMMAND');
     return r;
   }
-  if (c.type === 'startFarmPuzzle' || c.type === 'claimFarmTree' || c.type === 'finishFarmPuzzle') {
+  if (c.type === 'plantFarmSeed' || c.type === 'startFarmPuzzle' || c.type === 'claimFarmTree' || c.type === 'finishFarmPuzzle') {
     if ((c.type === 'finishFarmPuzzle'
       ? !Array.isArray(c.rotations) || c.rotations.length !== 9 || c.rotations.some(value => !Number.isInteger(value) || value < 0 || value > 3)
       : c.plot !== 0 && c.plot !== 1) ||

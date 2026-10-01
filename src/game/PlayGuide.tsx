@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 import { attackIntervalMs, type Progress } from './progression';
 
 export function PlayGuide({ progress, saveMode, onQuests, onGems }: { progress: Progress; saveMode: 'local' | 'practice' | 'server'; onQuests: () => void; onGems: () => void }) {

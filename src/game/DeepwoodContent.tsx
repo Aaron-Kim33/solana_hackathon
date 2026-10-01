@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 import { axeLevelFor, claimWardenReward, WARDEN_TARGETS, type Progress } from './progression';
 import { GemArt } from './GemArt';
 import { PRODUCT_CATALOG } from '../shared/catalog';

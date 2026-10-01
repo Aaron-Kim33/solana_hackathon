@@ -1,4 +1,5 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 import type { CommunitySnapshot } from '../shared/community';
 import type { GameCommand } from '../shared/server-contract';
 import type { SquirrelSnapshot } from '../shared/pets';

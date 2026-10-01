@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { Animated, StyleSheet, Text, View, type ViewStyle } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 import { translate, type Language, type TranslationKey } from '../i18n';
 import type { TutorialStep } from './tutorial';
 

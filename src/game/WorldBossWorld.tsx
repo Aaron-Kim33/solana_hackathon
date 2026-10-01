@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable, useGameAudio } from '../audio/GameAudio';
 import type { Progress } from './progression';
 import { ForesterSprite } from './ForesterSprite';
 import type { GameCommand } from '../shared/server-contract';
@@ -9,6 +10,7 @@ export function WorldBossWorld({ state, progress, language, command, locked, las
   state: WorldBossSnapshot; progress: Progress; language: 'ko' | 'en';
   command: (command: GameCommand) => boolean; locked: boolean; lastDamage?: number;
 }) {
+  const { play: playSound } = useGameAudio();
   const ko = language === 'ko';
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [holding, setHolding] = useState(false);
@@ -24,6 +26,7 @@ export function WorldBossWorld({ state, progress, language, command, locked, las
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
   useEffect(() => {
     if (state.hits > priorHits.current && lastDamage !== undefined) {
+      playSound('bossHit');
       setDamageLabel(lastDamage);
       impact.stopAnimation(); impact.setValue(0);
       damageMotion.stopAnimation(); damageMotion.setValue(0);
@@ -42,7 +45,7 @@ export function WorldBossWorld({ state, progress, language, command, locked, las
       ]).start();
     }
     priorHits.current = state.hits;
-  }, [state.hits, lastDamage, impact, damageMotion, cameraShake]);
+  }, [state.hits, lastDamage, impact, damageMotion, cameraShake, playSound]);
   const playSwing = () => {
     swing.stopAnimation(); swing.setValue(0);
     Animated.sequence([

@@ -17,7 +17,7 @@ This pitch describes current source capabilities. Verify the shared-facility/exp
 5. After 20 collected wood, connect a compatible MWA wallet. Explain that local practice is separate from the server account.
 6. Complete the Devnet First Record only when the account is eligible and the wallet has sufficient Devnet SOL. Show the wallet approval, on-chain transaction link, one-time reward, and persistence after restarting the app.
 7. On a clearly labeled progressed account, open the map and shared forest. Claim quest materials, contribute to a facility, and show the updated shared totals from another account. Claim the squirrel once and dispatch it to the mine or sapling trail; the quoted reward depends on tree/facility levels at departure.
-8. If verified in the final APK, briefly show the sapling farm and water-path puzzle. Karma currently accumulates but has no spending system. The world-boss scene records weekly attacks/damage but does not distribute rewards.
+8. If verified in the final APK, show planting a sapling, watering via the water-path puzzle, growth and transplanting. Current source removes the daily cap and allows spending 4 karma for a 20-minute double chopping wood/coin blessing; hosted server and signed APK need updating and QA before presenting this as released. Quest/pet rewards are not doubled. The world-boss scene records weekly attacks/damage but does not distribute rewards.
 
 Do not describe planned SOL/SKR purchases, ranked rewards, boss settlement, airdrops, automatic pet trips or mainnet token rewards as working features. Do not claim every chop is on-chain; that would be incorrect and a poor mobile experience.
 

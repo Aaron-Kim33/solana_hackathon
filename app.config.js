@@ -22,7 +22,12 @@ module.exports = () => {
   }
   return {
     ...expo,
-    plugins: [...(expo.plugins || []), 'expo-secure-store'],
+    plugins: [...(expo.plugins || []), 'expo-secure-store', ['expo-audio', {
+      microphonePermission: false,
+      recordAudioAndroid: false,
+      enableBackgroundRecording: false,
+      enableBackgroundPlayback: false,
+    }]],
     name: preview ? 'Lumber Rush Preview' : expo.name,
     scheme: preview ? 'lumberrush-preview' : expo.scheme,
     icon: './assets/lumber-rush-icon-v2.png',

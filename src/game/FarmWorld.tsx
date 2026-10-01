@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { FARM_DAILY_LIMIT, FARM_PLANT_COST, FARM_QUICK_MS, farmBoard, farmConnections, farmOf, farmSolved, farmToday } from './farm';
+import { useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable, useGameAudio } from '../audio/GameAudio';
+import { BLESSING_COST, FARM_PLANT_COST, FARM_QUICK_MS, farmBoard, farmConnections, farmOf, farmSolved, farmToday, blessingMultiplier } from './farm';
 import type { Progress } from './progression';
 
 type Props = { progress: Progress; now: number; locked: boolean;
+  onSeed: (plot: 0 | 1) => void; onBless: () => void;
   onStart: (plot: 0 | 1) => void; onPlant: (rotations: number[]) => void; onClaim: (plot: 0 | 1) => void };
 const remaining = (ms: number) => {
-  const minutes = Math.ceil(Math.max(0, ms) / 60_000);
-  return minutes < 1 ? `${Math.ceil(Math.max(0, ms) / 1000)}초` : `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
+  const seconds = Math.ceil(Math.max(0, ms) / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-export function FarmWorld({ progress, now, locked, onStart, onPlant, onClaim }: Props) {
+export function FarmWorld({ progress, now, locked, onSeed, onBless, onStart, onPlant, onClaim }: Props) {
+  const { play: playSound } = useGameAudio();
   const ko = progress.language === 'ko';
   const farm = farmOf(progress), puzzle = farm.puzzle;
   const [rotations, setRotations] = useState<number[]>(() => puzzle ? farmBoard(puzzle.seed).rotations : Array(9).fill(0));
@@ -18,6 +21,8 @@ export function FarmWorld({ progress, now, locked, onStart, onPlant, onClaim }: 
   const board = puzzle ? farmBoard(puzzle.seed) : null;
   const solved = puzzle ? farmSolved(puzzle.seed, rotations) : false;
   const quick = solved && !!puzzle && now - puzzle.startedAt <= FARM_QUICK_MS;
+  const solvedRef = useRef(solved);
+  useEffect(() => { if (solved && !solvedRef.current) playSound('water'); solvedRef.current = solved; }, [solved, playSound]);
   return <ScrollView contentContainerStyle={s.screen}>
     <View style={s.intro}>
       <Text style={s.eyebrow}>{ko ? '개인 숲 · 복원의 자리' : 'Personal forest · restoration'}</Text>
@@ -25,7 +30,15 @@ export function FarmWorld({ progress, now, locked, onStart, onPlant, onClaim }: 
       <Text style={s.copy}>{ko ? '베어 낸 만큼 다시 심어요. 물길을 잇고 묘목을 숲에 이식하면 카르마가 쌓여요.'
         : 'Plant as you chop. Guide roots to water, then transplant grown saplings to earn karma.'}</Text>
       <View style={s.counters}><Text style={s.counter}>{ko ? '카르마' : 'Karma'} {farm.karma}</Text>
-        <Text style={s.counter}>{ko ? '오늘 심기' : 'Planted today'} {farmToday(farm, now)}/{FARM_DAILY_LIMIT}</Text></View>
+        <Text style={s.counter}>{ko ? '오늘 심기' : 'Planted today'} {farmToday(farm, now)} · {ko ? '횟수 제한 없음' : 'Unlimited'}</Text></View>
+    </View>
+    <View style={s.intro}>
+      <Text style={s.heading}>{ko ? '✨ 숲의 축복' : '✨ Forest blessing'}</Text>
+      <Text style={s.copy}>{ko ? '20분 동안 벌목 목재·코인 2배\n퀘스트·펫 보상에는 적용되지 않아요.' : 'Double chopping wood and coins for 20 minutes.\nQuest and pet rewards are unchanged.'}</Text>
+      <Pressable sound={false} accessibilityRole="button" disabled={locked || farm.karma < BLESSING_COST || blessingMultiplier(progress, now) === 2}
+        onPress={onBless} style={[s.primary, (locked || farm.karma < BLESSING_COST || blessingMultiplier(progress, now) === 2) && s.disabled]}>
+        <Text style={s.primaryText}>{blessingMultiplier(progress, now) === 2 ? `${ko ? '축복 중' : 'Active'} · ${remaining((farm.blessingUntil ?? 0) - now)}` : `${ko ? '축복 받기 · 카르마' : 'Activate · Karma'} ${BLESSING_COST}`}</Text>
+      </Pressable>
     </View>
     {puzzle && board && <View style={s.puzzleCard}>
       <Text style={s.heading}>{ko ? `밭 ${puzzle.plot + 1} · 뿌리 물길 잇기` : `Plot ${puzzle.plot + 1} · Root waterway`}</Text>
@@ -43,27 +56,29 @@ export function FarmWorld({ progress, now, locked, onStart, onPlant, onClaim }: 
         </Pressable>;
       })}</View>
       <Text style={s.result}>{solved ? quick ? ko ? '✨ 물길 완성 · 성장 시간 10% 단축' : '✨ Connected · grows 10% faster'
-        : ko ? '🌿 물길 완성 · 묘목을 심어요' : '🌿 Connected · plant your sapling'
-        : ko ? '물길을 완성하지 않아도 묘목은 심을 수 있어요.' : 'You can still plant without completing the path.'}</Text>
-      <Pressable accessibilityRole="button" disabled={locked || progress.wood < FARM_PLANT_COST} onPress={() => onPlant(rotations)}
-        style={[s.primary, (locked || progress.wood < FARM_PLANT_COST) && s.disabled]}><Text style={s.primaryText}>{solved ? ko ? '묘목 심기' : 'Plant sapling' : ko ? '그냥 심기' : 'Plant anyway'} · {FARM_PLANT_COST} {ko ? '목재' : 'wood'}</Text></Pressable>
+        : ko ? '🌿 물길 완성 · 물을 주세요' : '🌿 Connected · water your sapling'
+        : ko ? '씨앗에서 물방울까지 물길을 이어 주세요.' : 'Connect the seed to the water.'}</Text>
+      <Pressable accessibilityRole="button" disabled={locked || !solved || (!farm.plots[puzzle.plot] && progress.wood < FARM_PLANT_COST)} onPress={() => onPlant(rotations)}
+        style={[s.primary, (locked || !solved) && s.disabled]}><Text style={s.primaryText}>{ko ? '물주기 완료 · 성장 시작' : 'Finish watering · start growing'}</Text></Pressable>
     </View>}
     <View style={s.plots}>{([0, 1] as const).map(index => {
-      const plot = farm.plots[index], ready = !!plot && now >= plot.readyAt;
-      const canStart = !plot && !puzzle && farmToday(farm, now) < FARM_DAILY_LIMIT && progress.wood >= FARM_PLANT_COST;
+      const plot = farm.plots[index], waiting = !!plot && plot.readyAt === 0, ready = !!plot && !waiting && now >= plot.readyAt;
+      const canStart = !plot && !puzzle && progress.wood >= FARM_PLANT_COST;
       return <View key={index} style={s.plot}>
         <Text style={s.heading}>{ko ? `밭 ${index + 1}` : `Plot ${index + 1}`}</Text>
         <Text style={s.plotArt}>{plot ? ready ? '🌳' : '🌱' : '🟫'}</Text>
-        <Text style={s.copy}>{plot ? ready ? ko ? '튼튼하게 자랐어요!' : 'Ready to transplant!' : `${ko ? '성장까지' : 'Growing'} ${remaining(plot.readyAt - now)}`
+        <Text style={s.copy}>{plot ? waiting ? ko ? '심기 완료 · 물을 기다려요' : 'Planted · waiting for water' : ready ? ko ? '튼튼하게 자랐어요!' : 'Ready to transplant!' : `${ko ? '성장까지' : 'Growing'} ${remaining(plot.readyAt - now)}`
           : puzzle?.plot === index ? ko ? '물길을 잇는 중' : 'Connecting roots' : ko ? '비어 있는 밭' : 'Empty plot'}</Text>
         {ready ? <Pressable accessibilityRole="button" disabled={locked} onPress={() => onClaim(index)} style={[s.primary, locked && s.disabled]}>
           <Text style={s.primaryText}>{ko ? '숲에 이식 · 카르마 +1' : 'Transplant · Karma +1'}</Text></Pressable>
-          : !plot && <Pressable accessibilityRole="button" disabled={!canStart || locked} onPress={() => onStart(index)} style={[s.secondary, (!canStart || locked) && s.disabled]}>
-            <Text style={s.secondaryText}>{puzzle?.plot === index ? ko ? '퍼즐 진행 중' : 'Puzzle in progress' : ko ? '묘목 심기 시작' : 'Start planting'}</Text></Pressable>}
+          : waiting ? <Pressable accessibilityRole="button" disabled={locked || !!puzzle} onPress={() => onStart(index)} style={[s.secondary, (locked || !!puzzle) && s.disabled]}>
+            <Text style={s.secondaryText}>{puzzle?.plot === index ? ko ? '물길 잇는 중' : 'Connecting water' : ko ? '💧 물주기' : '💧 Water sapling'}</Text></Pressable>
+          : !plot && <Pressable accessibilityRole="button" disabled={!canStart || locked} onPress={() => onSeed(index)} style={[s.secondary, (!canStart || locked) && s.disabled]}>
+            <Text style={s.secondaryText}>{puzzle?.plot === index ? ko ? '물길 잇는 중' : 'Connecting water' : `${ko ? '묘목 심기 · 목재' : 'Plant · wood'} ${FARM_PLANT_COST}`}</Text></Pressable>}
       </View>;
     })}</View>
-    <Text style={s.foot}>{ko ? `목재 ${progress.wood.toLocaleString()}개 · 첫 묘목은 30초, 이후 30분 성장 · 하루 최대 3회 심기` :
-      `${progress.wood.toLocaleString()} wood · first sapling 30 sec, then 30 min · up to 3 plantings per day`}</Text>
+    <Text style={s.foot}>{ko ? `목재 ${progress.wood.toLocaleString()}개 · 심기 → 물주기 → 성장 → 이식\n첫 수확 전 30초, 이후 30분 성장 · 반복 제한 없음` :
+      `${progress.wood.toLocaleString()} wood · Plant → water → grow → transplant\nBefore first harvest: 30 sec, then 30 min · unlimited repeats`}</Text>
   </ScrollView>;
 }
 

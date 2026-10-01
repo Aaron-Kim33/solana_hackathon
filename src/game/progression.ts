@@ -1,4 +1,5 @@
 import type { FarmState } from './farm';
+import { blessingMultiplier } from './farm.ts';
 
 export const RECOVERY_MS = 30 * 60 * 1000;
 export const AXE_MAX = 200;
@@ -343,10 +344,13 @@ export function hit(state: Progress, now: number, random: () => number = Math.ra
   const bonusWood = baseWood > 0 && harvestRoll < BOUNTIFUL_CHANCE ? current.treeLevel : 0;
   const felled = current.treeHp <= damage;
   const coinBonus = random() < COIN_CHANCE ? bonusCoins(current.treeLevel) : 0;
-  const coins = coinBonus + (felled ? defeatCoins(current) : 0);
+  const multiplier = blessingMultiplier(current, now);
+  const coins = (coinBonus + (felled ? defeatCoins(current) : 0)) * multiplier;
   const bonusHundredths = current.xpBonusRemainder + hitXp(current.treeLevel) * hitXpBonusPercent(current);
   const xpGained = hitXp(current.treeLevel) + Math.floor(bonusHundredths / 100);
-  const value = baseWood + bonusWood;
+  const value = (baseWood + bonusWood) * multiplier;
+  if (!Number.isSafeInteger(current.coins + coins) || !Number.isSafeInteger(current.wood + current.trolleyWood + value) ||
+    !Number.isSafeInteger(current.harvested + current.trolleyWood + value)) return null;
   const pickupRoll = random();
   const autoCollected = value > 0 && (autoPickupEntitled || pickupRoll < talentValue('autoCollect', current.talents.autoCollect) / 100);
   const fatigueSaved = current.axeSkin === 'recovery' && recoveryOwned(current) && random() < 0.3;
@@ -361,7 +365,8 @@ export function hit(state: Progress, now: number, random: () => number = Math.ra
     gems: { ...next.gems, high: next.gems.high + (bossDefeated === 'gate' ? 1 : 0) } };
   return {
     bossDefeated, fatigueSaved,
-    damage, critical, felled, baseWood, bonusWood, value, coins, coinBonus, xpGained, autoCollected,
+    damage, critical, felled, baseWood: baseWood * multiplier, bonusWood: bonusWood * multiplier,
+    value, coins, coinBonus: coinBonus * multiplier, xpGained, autoCollected,
     manualWood: autoCollected ? 0 : value,
     state: next,
   };
@@ -437,12 +442,15 @@ export function parseProgress(raw: string): Progress {
   if (state.farm !== undefined) {
     const farm = state.farm;
     const validInteger = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
-    if (!farm || !validInteger(farm.karma) || !validInteger(farm.grown) || farm.karma !== farm.grown ||
-      !validInteger(farm.dayStart) || farm.dayStart % 86_400_000 !== 0 || !validInteger(farm.plantedToday) || farm.plantedToday > 3 ||
+    if (!farm || !validInteger(farm.karma) || !validInteger(farm.grown) || farm.karma > farm.grown ||
+      (farm.blessingUntil !== undefined && !validInteger(farm.blessingUntil)) ||
+      !validInteger(farm.dayStart) || farm.dayStart % 86_400_000 !== 0 || !validInteger(farm.plantedToday) ||
       !Array.isArray(farm.plots) || farm.plots.length !== 2 || farm.plots.some(plot => plot !== null &&
-        (!plot || !validInteger(plot.plantedAt) || !validInteger(plot.readyAt) || plot.readyAt <= plot.plantedAt || typeof plot.quick !== 'boolean')) ||
+        (!plot || !validInteger(plot.plantedAt) || !validInteger(plot.readyAt) || (plot.readyAt !== 0 && plot.readyAt <= plot.plantedAt) || typeof plot.quick !== 'boolean')) ||
       (farm.puzzle !== null && (!farm.puzzle || !validInteger(farm.puzzle.seed) || farm.puzzle.seed > 2_147_483_647 ||
-        !validInteger(farm.puzzle.startedAt) || (farm.puzzle.plot !== 0 && farm.puzzle.plot !== 1) || farm.plots[farm.puzzle.plot] !== null)))
+        !validInteger(farm.puzzle.startedAt) || (farm.puzzle.plot !== 0 && farm.puzzle.plot !== 1) ||
+        (farm.plots[farm.puzzle.plot] !== null && farm.plots[farm.puzzle.plot]!.readyAt !== 0) ||
+        (farm.plots[farm.puzzle.plot] !== null && farm.puzzle.startedAt < farm.plots[farm.puzzle.plot]!.plantedAt))))
       throw new Error('INVALID_SAVE');
   }
   // Older saves may hold more HP than the shortened opening trees. Preserve every

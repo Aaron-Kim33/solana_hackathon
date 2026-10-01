@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, AppState, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Text, View } from 'react-native';
+import { SoundPressable as Pressable, useGameAudio } from '../audio/GameAudio';
+import { serverCues } from '../audio/policy';
 import { Buffer } from 'buffer';
 import { PublicKey } from '@solana/web3.js';
 import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
@@ -48,6 +50,7 @@ export type ServerController = {
   record: () => Promise<void>; checkRecord: () => Promise<void>;
 };
 export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'en'; renderMain: (controller: ServerController) => ReactNode }) {
+  const { play: playSound } = useGameAudio();
   const ko = language === 'ko', token = useRef<string | null>(sessionCache.token), lock = useRef(false);
   const [busy, setBusy] = useState(false), [restoring, setRestoring] = useState(true);
   const [state, setState] = useState<PlayerSnapshot | null>(() => {
@@ -183,6 +186,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     sessionCache.pending ??= { requestId: `play_${Date.now()}_${++sequence}`, expectedRevision: sessionCache.state.revision, command: command! };
     try {
       const sentType = sessionCache.pending.command.type;
+      const beforeAudio = sessionCache.state;
       const beforeHarvested = sessionCache.state.progress.harvested;
       const beforeTrolley = sessionCache.state.progress.trolleyWood;
       const beforeCoins = sessionCache.state.progress.coins;
@@ -210,6 +214,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       readyAt.current = sentAt + (['collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(sentType) ? 300 : 200);
       sessionCache.pending = null;
       response = updateState(response)!;
+      for (const cue of serverCues(beforeAudio, response, sentCommand)) playSound(cue);
       if (response.progress.harvested > beforeHarvested && sentType !== 'collectTrolley') {
         const collected = response.progress.harvested - beforeHarvested;
         if (beforeHarvested < 20 && response.progress.harvested >= 20) setNotice(translate(language, 'firstHarvestReady'));
@@ -255,6 +260,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       if (retrying) updateState(await api('/me', undefined, token.current));
     } catch (error) {
       inputQueue.current.clear(); setQueued(0);
+      playSound('unavailable');
       const code = error instanceof Error ? error.message : 'NETWORK';
       if (code === 'UNAUTHENTICATED') await expireSession();
       else if (['INVALID_COMMAND', 'ACTION_TOO_FAST', 'DROP_UNAVAILABLE', 'ACTION_UNAVAILABLE', 'REVISION_CONFLICT', 'REQUEST_ID_REUSED', 'RATE_LIMITED'].includes(code)) {

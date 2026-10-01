@@ -6,7 +6,7 @@ import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.t
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
 import { SQUIRREL_EXPEDITION_MS, squirrelReward } from '../src/shared/pets.ts';
-import { startFarmPuzzle, finishFarmPuzzle, claimFarmTree } from '../src/game/farm.ts';
+import { plantFarmSeed, activateBlessing, startFarmPuzzle, finishFarmPuzzle, claimFarmTree } from '../src/game/farm.ts';
 import { WOOD_DROP_ACCEPT_MS } from '../src/shared/drop-lifetime.ts';
 
 
@@ -167,7 +167,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'plantFarmSeed' || r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -251,11 +251,13 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           db.prepare('INSERT INTO community_balances VALUES (?,?,?) ON CONFLICT(player_id,week_start) DO UPDATE SET materials=materials+excluded.materials')
             .run(accountId, weekStart, quest.materials);
           after = { ...before, revision: before.revision + 1 };
-        } else if (['startFarmPuzzle', 'finishFarmPuzzle', 'claimFarmTree', 'acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
+        } else if (['plantFarmSeed', 'activateBlessing', 'startFarmPuzzle', 'finishFarmPuzzle', 'claimFarmTree', 'acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
-          if (c.type === 'startFarmPuzzle') next = startFarmPuzzle(before.progress, time, Math.floor(random() * 2_147_483_648), c.plot);
+          if (c.type === 'plantFarmSeed') next = plantFarmSeed(before.progress, time, c.plot);
+          else if (c.type === 'activateBlessing') next = activateBlessing(before.progress, time);
+          else if (c.type === 'startFarmPuzzle') next = startFarmPuzzle(before.progress, time, Math.floor(random() * 2_147_483_648), c.plot);
           else if (c.type === 'finishFarmPuzzle') next = finishFarmPuzzle(before.progress, time, c.rotations);
           else if (c.type === 'claimFarmTree') next = claimFarmTree(before.progress, time, c.plot);
           else if (c.type === 'acknowledgeWallet') {

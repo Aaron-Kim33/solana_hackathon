@@ -12,12 +12,13 @@ import {
   Platform,
   StatusBar as NativeStatusBar,
   PanResponder,
-  Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import { GameAudioProvider, AudioSettingsControls, SoundPressable as Pressable, useGameAudio } from './src/audio/GameAudio';
+import { progressCues } from './src/audio/policy';
 import { connectWallet, ConnectedWallet } from './src/solana/wallet';
 import { recordHarvest, checkHarvest } from './src/solana/achievement';
 import { recordErrorKey } from './src/solana/record-errors';
@@ -50,7 +51,7 @@ import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
 import { squirrelAtHome, squirrelNeedsAttention, squirrelTimeLeft } from './src/shared/pets';
 import { FarmWorld } from './src/game/FarmWorld';
-import { FARM_UNLOCK_LEVEL, claimFarmTree, finishFarmPuzzle, startFarmPuzzle } from './src/game/farm';
+import { FARM_UNLOCK_LEVEL, claimFarmTree, finishFarmPuzzle, startFarmPuzzle, plantFarmSeed, activateBlessing, blessingMultiplier } from './src/game/farm';
 import { WOOD_DROP_VISIBLE_MS, visibleDropExpiry } from './src/shared/drop-lifetime';
 
 type Log = {
@@ -97,6 +98,10 @@ const recoveryCountdown = (recoveryAt: number | null, time: number) => {
 };
 
 export default function App() {
+  return <GameAudioProvider><GameApp /></GameAudioProvider>;
+}
+
+function GameApp() {
   const [language, setLanguage] = useState<Language>(__DEV__ ? 'ko' : 'en');
   if (!deployment.config) return <SafeAreaView style={{ flex: 1, backgroundColor: '#102D32', justifyContent: 'center', padding: 24 }}>
     <Text style={{ color: '#FFE2A0', fontSize: 18 }}>Test build configuration missing / 테스트 빌드 설정 오류</Text>
@@ -108,6 +113,7 @@ export default function App() {
 }
 
 function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerController; uiLanguage: Language; onLanguage: (language: Language) => void }) {
+  const { play: playSound, scene: audioScene } = useGameAudio();
   const online = !!server?.snapshot;
   const [loaded] = useState(() => {
     if (server?.snapshot) return { state: server.snapshot.progress, error: false };
@@ -144,16 +150,25 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
   const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'farm' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'pet' | 'tree' | null>(null);
+  const previousPanel = useRef(panel);
+  useEffect(() => {
+    audioScene(panel === 'worldBoss' ? 'boss' : 'forest');
+    if (panel !== previousPanel.current) {
+      playSound(panel === null ? 'close' : panel === 'map' ? 'map' : 'open');
+      previousPanel.current = panel;
+    }
+  }, [panel, audioScene, playSound]);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
     if (loaded.error) return false;
     try { saveProgress(next); setSaveError(false); }
     catch { setSaveError(true); return false; }
+    for (const cue of progressCues(progressRef.current, next)) playSound(cue);
     progressRef.current = next;
     setProgress(next);
     return true;
-  }, [loaded.error]);
+  }, [loaded.error, playSound]);
   const { treeHp, fatigue, wood, language } = progress;
   const level = characterLevel(progress.xp);
   const boss = activeBoss(progress);
@@ -191,11 +206,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
   const [uiNotice, setUiNotice] = useState<GameMessage | null>(null);
   const notifyFatigue = useCallback(() => {
+    playSound('unavailable');
     const connection = serverRef.current;
     const notice: GameMessage = { key: 'fatigueFull', value: recoveryCountdown(progressRef.current.recoveryAt, connection?.snapshot ? connection.now : Date.now()) };
     if (connection?.snapshot) setUiNotice(notice);
     else setMessage(notice);
-  }, []);
+  }, [playSound]);
   useEffect(() => {
     if (message.key === 'intro') return;
     const timer = setTimeout(() => setMessage(current => current === message ? { key: 'intro' } : current),
@@ -274,6 +290,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     setLogs(existing => existing.length === currentLogs.length && existing.every((log, i) => log === currentLogs[i]) ? existing : currentLogs);
     const previousHits = seenServerHits.current;
     const hadNewHits = snapshot.progress.totalHits > previousHits;
+    if (hadNewHits && (snapshot.drops ?? []).some(drop => !prior.has(drop.id))) playSound('drop');
     seenServerHits.current = snapshot.progress.totalHits;
     if (seenServerFatigue.current < 100 && snapshot.progress.fatigue >= 100)
       setUiNotice({ key: 'fatigueFull', value: recoveryCountdown(snapshot.progress.recoveryAt, server.now) });
@@ -286,7 +303,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const timer = setTimeout(() => { damageTimers.current.delete(timer); setDamagePopups(current => current.filter(popup => !ids.has(popup.id))); }, 760);
       damageTimers.current.add(timer);
     }
-  }, [server?.snapshot]);
+  }, [server?.snapshot, playSound]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -380,6 +397,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const swing = useRef(new Animated.Value(0)).current;
   const impact = useRef(new Animated.Value(0)).current;
   const playChopMotion = useCallback(() => {
+    const soundTimer = setTimeout(() => { damageTimers.current.delete(soundTimer); playSound('chop'); }, 210);
+    damageTimers.current.add(soundTimer);
     swing.stopAnimation(); swing.setValue(0);
     Animated.sequence([
       Animated.timing(swing, { toValue: 0.25, duration: 140, useNativeDriver: true }),
@@ -399,7 +418,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       Animated.timing(impact, { toValue: 1, duration: 75, useNativeDriver: true }),
       Animated.timing(impact, { toValue: 0, duration: 260, useNativeDriver: true }),
     ]).start();
-  }, [impact, shake, swing]);
+  }, [impact, shake, swing, playSound]);
 
   const chop = useCallback(() => {
     if (panel || progressRef.current.treeHp === 0) return;
@@ -446,6 +465,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     }, 760);
 
     if (result.manualWood > 0) {
+      const landingSound = setTimeout(() => { damageTimers.current.delete(landingSound); playSound('drop'); }, 430);
+      damageTimers.current.add(landingSound);
       activeLogs.current.set(droppedLog.id, droppedLog);
       setLogs([...activeLogs.current.values()]);
     }
@@ -464,7 +485,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const lang = result.state.language;
       Alert.alert(translate(lang, 'bossDefeated'), translate(lang, result.bossDefeated === 'first' ? 'bossFirstReward' : 'bossGateReward'));
     }
-  }, [commit, completeTutorial, notifyFatigue, panel, playChopMotion]);
+  }, [commit, completeTutorial, notifyFatigue, panel, playChopMotion, playSound]);
 
   const chopRef = useRef(chop);
   chopRef.current = chop;
@@ -770,7 +791,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         <View style={styles.forestInfoPanel}>
           <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}
             style={[styles.forestInfoText, fatigue >= 100 && styles.fatigueFullText]}>{fatigue >= 100 ? t('fatigueFull', countdown) : fatigue > 0 ? t('recoveryIn', countdown) : t('fullyRested')}</Text>
-          <Text style={styles.forestInfoText}>{t('treeBonus', progress.treeLevel)}</Text>
+          <Text style={styles.forestInfoText}>{blessingMultiplier(progress, online ? server!.now : now) === 2
+            ? `${language === 'ko' ? '✨ 숲의 축복 · 목재·코인 ×2' : '✨ Blessing · wood/coins ×2'} · ${Math.ceil(((progress.farm?.blessingUntil ?? 0) - (online ? server!.now : now)) / 60_000)}${language === 'ko' ? '분' : 'm'}`
+            : t('treeBonus', progress.treeLevel)}</Text>
         </View>
       </View>
 
@@ -791,7 +814,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'gem' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
             <GemArt tier="high" size={37} />
           </Pressable>}
-          {shortcutUnlocks.map && <Pressable accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
+          {shortcutUnlocks.map && <Pressable sound="map" accessibilityRole="button" accessibilityLabel={language === 'ko' ? '숲 지도 열기' : 'Open forest map'}
             onPress={() => { if (tutorialStep === 'map') completeTutorial('map'); setPanel('map'); }}
             style={({ pressed }) => [styles.forestShortcut, tutorialStep === 'map' && styles.tutorialTargetGlow, pressed && styles.forestShortcutPressed]}>
             <Text style={styles.forestMapIcon}>🗺️</Text>
@@ -902,6 +925,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe' || (panel === 'pet' && /다람쥐|squirrel/i.test(server!.notice))) &&
         <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
       {panel === 'menu' && <View style={styles.achievement}>
+        <AudioSettingsControls language={language} />
         {server?.controls}
         <Pressable accessibilityRole="button" onPress={() => setPanel('guide')} style={styles.languageButton}><Text style={styles.statValue}>{language === 'ko' ? '플레이 가이드' : 'How to play'}</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={replayTutorial} style={styles.languageButton}><Text style={styles.statValue}>{t('tutorialReplay')}</Text></Pressable>
@@ -1065,6 +1089,13 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               onWorldBoss={() => { setPanel('worldBoss'); server!.refresh(); }} />
           </ScrollView> : panel === 'farm' ? <FarmWorld progress={progress} now={online ? server!.now : now}
             locked={online && (server!.busy || server!.pending || server!.queued > 0)}
+            onSeed={plot => {
+              if (online) { server!.command({ type: 'plantFarmSeed', plot }); return; }
+              commit(plantFarmSeed(progressRef.current, Date.now(), plot));
+            }} onBless={() => {
+              if (online) { server!.command({ type: 'activateBlessing' }); return; }
+              commit(activateBlessing(progressRef.current, Date.now()));
+            }}
             onStart={plot => {
               if (online) { server!.command({ type: 'startFarmPuzzle', plot }); return; }
               commit(startFarmPuzzle(progressRef.current, Date.now(), Math.floor(Math.random() * 2_147_483_648), plot));

@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { SoundPressable as Pressable } from '../audio/GameAudio';
 
 export function ForestMap({ language, farmReady, communityReady, bossReady, onPersonal, onFarm, onCommunity, onWorldBoss }: { language: 'ko' | 'en'; farmReady: boolean; communityReady: boolean; bossReady: boolean;
   onPersonal: () => void; onFarm: () => void; onCommunity: () => void; onWorldBoss: () => void }) {
