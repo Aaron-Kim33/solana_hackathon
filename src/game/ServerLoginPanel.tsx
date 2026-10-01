@@ -216,6 +216,10 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         else if (collected > 0) setNotice(translate(language, 'collected', collected));
       }
       if (sentType === 'collectTrolley' && response.progress.trolleyTrip) setNotice(translate(language, 'trolleyDeparted'));
+      if (sentType === 'startFarmPuzzle') setNotice(ko ? '뿌리 물길이 나타났어요. 흙 칸을 탭해 돌려 주세요.' : 'The root waterway is ready. Tap soil tiles to rotate them.');
+      if (sentType === 'finishFarmPuzzle' && response.progress.farm?.plots.some(plot => plot?.plantedAt === response.serverTime))
+        setNotice(ko ? '묘목을 심었어요! 자라면 숲에 이식해 카르마를 받으세요.' : 'Sapling planted! Transplant it when grown to earn karma.');
+      if (sentType === 'claimFarmTree') setNotice(ko ? '묘목을 숲에 이식했어요. 카르마 +1!' : 'Sapling transplanted. Karma +1!');
       if ((sentType === 'loadTrolley' || sentType === 'loadTrolleyBatch') && response.progress.trolleyWood > beforeTrolley)
         setNotice(translate(language, 'trolleyLoaded', response.progress.trolleyWood - beforeTrolley));
       if (sentType === 'acknowledgeWallet' && response.walletCoinRewardClaimed && response.progress.coins - beforeCoins === 20)
@@ -257,7 +261,13 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         sessionCache.pending = null;
         try { updateState(await api('/me', undefined, token.current!)); } catch { /* keep prior view, never grant locally */ }
       }
-      setNotice(ko ? '처리를 완료하지 못했어요. 잠시 후 다시 시도해 주세요. 응답이 불확실하면 같은 요청으로 재확인하며 로컬 보상은 지급하지 않아요.' : 'Action did not finish. Retry shortly. Uncertain requests reuse the same ID; no local rewards are granted.');
+      setNotice(code === 'DROP_UNAVAILABLE'
+        ? (ko ? '목재가 만료되었거나 이미 회수됐어요. 남아 있는 목재를 다시 쓸어 담아 주세요.' : 'A log expired or was already collected. Sweep the remaining logs again.')
+        : code === 'ACTION_TOO_FAST'
+          ? (ko ? '입력이 너무 빨랐어요. 잠시 후 다시 시도해 주세요.' : 'Input was too fast. Please try again shortly.')
+          : ['ACTION_UNAVAILABLE', 'REVISION_CONFLICT', 'RATE_LIMITED', 'INVALID_COMMAND', 'REQUEST_ID_REUSED'].includes(code)
+            ? (ko ? '현재 요청을 처리할 수 없어 서버 상태를 새로 확인했어요. 다시 시도해 주세요.' : 'The request could not be processed. Server state was refreshed; please try again.')
+            : (ko ? '서버 응답을 확인하지 못했어요. 메뉴에서 같은 요청을 재확인해 주세요. 중복 보상은 지급하지 않아요.' : 'Could not confirm the server response. Retry the same pending request from the menu; no duplicate rewards are granted.'));
     } finally { lock.current = false; setBusy(false); }
   };
   pump.current = () => {

@@ -5,7 +5,7 @@ import { initialProgress, claimAdventure, adventureReady, pioneerOwned, equipAxe
 import { questView } from './quest-view.ts';
 const normal = () => 0.99;
 function ready() {
-  return { ...initialProgress('ko'), treeLevel: 100, treeHp: 10200, axeLevel: 20, xp: xpFloor(20),
+  return { ...initialProgress('ko'), treeLevel: 100, treeHp: 10200, axeLevel: 25, xp: xpFloor(20),
     wood: 1000, harvested: 1000, walletCompleted: true,
     receipt: { address: 'test', signature: 'test', status: 'confirmed' }, firstRecordClaimed: true,
     skinQuestHarvestStart: 900, growthRewardClaimed: true, rewardOption: 'low:damage', gemSlotQuestDone: true,
@@ -32,7 +32,7 @@ test('adventure rewards are sequential, exact and persistent', () => {
   for (let i = 0; i < 9; i++) state = upgrade(state, 'axe');
   assert.equal(state.axeLevel, 10);
   assert.equal(state.coins, 300); // Exactly 900 to go from 1 to 10.
-  assert.equal(axeLevelFor(state, 'default'), 20);
+  assert.equal(axeLevelFor(state, 'default'), 25);
   state = claimAdventure(state); assert.equal(state.coins, 1300);
   state = claimAdventure(state); assert.equal(state.gems.high, 1);
   assert.ok(questSteps(state).every(status => status === 'complete'));
@@ -44,7 +44,7 @@ test('adventure rewards are sequential, exact and persistent', () => {
 });
 test('all new objective boundaries and prerequisites are enforced', () => {
   for (const [index, patch] of [[0, { treeLevel: 14 }], [1, { slots: ['low:damage', null] }],
-    [2, { treeLevel: 24 }], [2, { axeLevel: 19 }], [3, { treeLevel: 49 }], [3, { xp: xpFloor(10) - 1 }],
+    [2, { treeLevel: 19 }], [2, { axeLevel: 24 }], [3, { treeLevel: 49 }], [3, { xp: xpFloor(10) - 1 }],
     [4, { axeSkin: 'default', unequippedAxeLevels: { pioneer: 10 } }],
     [4, { axeSkin: 'pioneer', axeLevel: 9 }], [5, { treeLevel: 99 }], [5, { xp: xpFloor(20) - 1 }]]) {
     const state = { ...ready(), adventureClaimed: index, ...patch };
@@ -53,6 +53,9 @@ test('all new objective boundaries and prerequisites are enforced', () => {
   }
   const blocked = { ...ready(), gemSlotQuestDone: false };
   assert.equal(claimAdventure(blocked), blocked);
+  assert.equal(adventureReady({ ...ready(), adventureClaimed: 2, treeLevel: 20, axeLevel: 25 }), true);
+  assert.equal(adventureReady({ ...ready(), adventureClaimed: 2, treeLevel: 20, axeLevel: 24 }), false);
+  assert.equal(adventureReady({ ...ready(), adventureClaimed: 2, treeLevel: 19, axeLevel: 25 }), false);
 });
 test('pioneer gives exactly 10% hit XP including fractional carry through switches and restart', () => {
   let state = { ...pioneer(), treeLevel: 51, treeHp: 5300 };
@@ -104,6 +107,10 @@ test('v6 saves retain separate axe levels and get no automatic new rewards', () 
   assert.equal(next.coins, 765);
   assert.deepEqual(next.unequippedAxeLevels, old.unequippedAxeLevels);
   assert.equal(questView(questSteps(next)).chapter, 'questFrontier');
+});
+test('past third-adventure claims at the old threshold remain valid saves', () => {
+  const legacyClaim = { ...ready(), treeLevel: 25, treeHp: 2700, axeLevel: 20, adventureClaimed: 3 };
+  assert.equal(parseProgress(JSON.stringify(legacyClaim)).adventureClaimed, 3);
 });
 test('invalid adventure ownership, counters and bonus carry are rejected', () => {
   for (const patch of [{ adventureClaimed: 7 }, { adventureClaimed: -1 }, { xpBonusRemainder: 100 },

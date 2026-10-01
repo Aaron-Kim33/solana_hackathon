@@ -15,7 +15,7 @@ async function body(req, keys) {
 }
 // Local-only launcher below binds loopback. Do not expose publicly without TLS/security review.
 export function createApi({ path, origin, mode = 'local', readRecordTransaction = fetchRecordTransaction }) {
-  const store = openGameStore(path), auth = openAuthService(path, { origin }), game = authenticatedGame(auth, store);
+  const store = openGameStore(path, { mode }), auth = openAuthService(path, { origin }), game = authenticatedGame(auth, store);
   const anonymousLimit = createRateLimit(), playerLimit = createRateLimit();
   const recordLimit = createRateLimit({ limit: 12 });
   const recordChecks = new Set();

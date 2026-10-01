@@ -45,10 +45,13 @@ import { GameMessage, Language, translate, TranslationKey } from './src/i18n';
 import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, loadTrolley, dispatchTrolley, upgrade, testRest,
   combatStats, treeAppearance, equip, grantTestOptions, OPTION_ITEMS, OptionId,
   claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
-  treeHealth, trolleyCapacity, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, Progress } from './src/game/progression';
+  treeHealth, trolleyCapacity, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, WOOD_GEM_COST, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
 import { squirrelAtHome, squirrelNeedsAttention, squirrelTimeLeft } from './src/shared/pets';
+import { FarmWorld } from './src/game/FarmWorld';
+import { FARM_UNLOCK_LEVEL, claimFarmTree, finishFarmPuzzle, startFarmPuzzle } from './src/game/farm';
+import { WOOD_DROP_VISIBLE_MS, visibleDropExpiry } from './src/shared/drop-lifetime';
 
 type Log = {
   id: number;
@@ -68,8 +71,14 @@ type DamagePopup = {
   top: number;
 };
 
-const LOG_LIFETIME_MS = 5000;
+const LOG_LIFETIME_MS = WOOD_DROP_VISIBLE_MS;
 const HOLD_TO_CHOP_MS = 280;
+const TROLLEY_SPRITES = [
+  require('./assets/forest/trolley-v2-empty.png'),
+  require('./assets/forest/trolley-v2-low.png'),
+  require('./assets/forest/trolley-v2-medium.png'),
+  require('./assets/forest/trolley-v2-full.png'),
+];
 const floorPosition = (id: number) => ({ left: [31, 40, 49, 35, 44][id % 5], bottom: [7, 17, 8, 22, 13][id % 5] });
 
 const clamp = (value: number, min: number, max: number) =>
@@ -134,7 +143,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const serverRef = useRef(server); serverRef.current = server;
   const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
   const [saveError, setSaveError] = useState(loaded.error);
-  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'pet' | 'tree' | null>(null);
+  const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'farm' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'pet' | 'tree' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const commit = useCallback((next: Progress) => {
     if (serverRef.current?.snapshot) { unavailable(); return false; }
@@ -254,10 +263,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const prior = new Map([...activeLogs.current.values()].map(log => [log.serverId, log]));
     activeLogs.current.clear();
     for (const drop of snapshot.drops ?? []) {
-      if (drop.expiresAt <= server.now) continue;
+      const visibleUntil = visibleDropExpiry(drop.expiresAt);
+      if (visibleUntil <= server.now) continue;
       const existing = prior.get(drop.id);
       const id = existing?.id ?? nextLogId.current++;
-      const log: Log = existing ?? { id, serverId: drop.id, ...floorPosition(id), value: drop.value, bonusWood: 0, expiresAt: Date.now() + drop.expiresAt - server.now };
+      const log: Log = existing ?? { id, serverId: drop.id, ...floorPosition(id), value: drop.value, bonusWood: 0, expiresAt: Date.now() + visibleUntil - server.now };
       activeLogs.current.set(log.id, log);
     }
     const currentLogs = [...activeLogs.current.values()];
@@ -567,7 +577,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   };
 
   const rest = () => {
-    if (__DEV__ && commit(testRest(progressRef.current, Date.now()))) setMessage({ key: 'rested' });
+    if (__DEV__ && !online && commit(testRest(progressRef.current, Date.now()))) setMessage({ key: 'rested' });
   };
 
   const handleUpgrade = (kind: 'axe' | 'tree') => {
@@ -841,10 +851,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </Pressable>}
         {autoPickupNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={{ position: 'absolute', bottom: 12, alignSelf: 'center', color: '#FFE19C', backgroundColor: '#153936', borderRadius: 12, padding: 8, fontWeight: '800' }}>{t('autoCollected', autoPickupNotice.value)}</Text>}
         <View ref={storageRef} collapsable={false} style={[styles.storageTarget, tutorialStep === 'storage' && styles.tutorialTargetGlow]}>
-          <View pointerEvents="none" style={styles.storageArt}>
-            <View style={styles.storageTop} />
-            <View style={styles.storageBody}><View style={styles.storagePlank} /><View style={styles.storagePlank} /></View>
-          </View>
+          <Image source={require('./assets/forest/storage-v1.png')} style={styles.storageArt} resizeMode="contain" />
           <Text pointerEvents="none" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.storageLabel}>{t('storage')}</Text>
         </View>
         <Animated.View style={[styles.trolleyTarget, { transform: [{ translateX: trolleyOffset }] }]}>
@@ -852,13 +859,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             disabled={progress.trolleyWood <= 0 || !!progress.trolleyTrip || mode === 'collect' || (online && !server!.trolleySupported)} onPress={bankTrolley}
             style={({ pressed }) => [styles.trolleyButton, tutorialStep === 'trolley' && styles.tutorialTargetGlow, pressed && { opacity: 0.75 }]}>
             <View pointerEvents="none" style={styles.trolleyArt}>
-              {trolleyFill > 0 && <View style={styles.trolleyCargoStack}>
-                {Array.from({ length: trolleyFill }, (_, index) => <View key={index} style={[styles.trolleyCargoLog, index === 1 && styles.trolleyCargoMiddle]}>
-                  <View style={styles.trolleyCargoEnd} /><View style={styles.trolleyCargoGrain} />
-                </View>)}
-              </View>}
-              <View style={styles.trolleyBed} />
-              <View style={styles.trolleyWheelLeft} /><View style={styles.trolleyWheelRight} />
+              <View style={styles.trolleyGround} />
+              <Image source={TROLLEY_SPRITES[trolleyFill]} style={styles.trolleySprite} resizeMode="contain" />
             </View>
             <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.trolleyCount}>{online && !server!.trolleySupported
               ? (language === 'ko' ? '서버 업데이트 필요' : 'Server update needed')
@@ -875,7 +877,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       </View>
 
       <View style={styles.actions}>
-        {__DEV__ && <Pressable onPress={rest} style={styles.restButton}>
+        {__DEV__ && !online && <Pressable onPress={rest} style={styles.restButton}>
           <Text style={styles.restIcon}>♨</Text>
           <Text style={styles.restText}>{t('testRest')}</Text>
         </Pressable>}
@@ -888,7 +890,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>}
       </View>
       </View>
-      <Modal visible={panel !== null && panel !== 'map' && panel !== 'community' && panel !== 'worldBoss'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
+      <Modal visible={panel !== null && panel !== 'map' && panel !== 'farm' && panel !== 'community' && panel !== 'worldBoss'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t('close')} onPress={() => setPanel(null)} />
           <View style={styles.modalCard} accessibilityViewIsModal>
@@ -920,20 +922,6 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         now={online ? server!.now : now} treeLevel={progress.treeLevel} language={language}
         command={online ? server!.command : () => false} locked={!online || server!.busy || server!.pending || server!.queued > 0} />}
       {panel === 'quests' && <View>
-        {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
-          serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}
-      {__DEV__ && !online && devWalletSkip && <Text style={styles.progressLabel}>
-        {language === 'ko' ? '개발 테스트: 지갑 퀘스트 화면만 건너뜀 · 실제 연결/서버 저장/기록은 미완료' : 'Development test: wallet quest display skipped only · wallet, server save and record are incomplete'}
-      </Text>}
-      {online && progress.walletCompleted && server!.snapshot?.walletCoinRewardClaimed === false && <View style={[styles.questRow, styles.questActive]}>
-        <Text style={styles.walletText}>{t('walletCoinLegacy')}</Text>
-        <Text style={styles.progressLabel}>{t('walletCoinReward')}</Text>
-        <Pressable accessibilityRole="button" disabled={server!.busy || server!.pending || server!.queued > 0}
-          onPress={() => server!.command({ type: 'acknowledgeWallet' })}
-          style={[styles.languageButton, (server!.busy || server!.pending || server!.queued > 0) && styles.disabledButton]}>
-          <Text style={styles.walletText}>{t('walletCoinClaim')}</Text>
-        </Pressable>
-      </View>}
       <View style={styles.achievement}>
         <Text accessibilityLiveRegion="polite" style={styles.statValue}>{t(visibleQuests.chapter)}</Text>
         {visibleQuests.active < 0 && <Text style={styles.progressLabel}>{t('questsFinishedHint')}</Text>}
@@ -945,7 +933,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               <Text style={styles.progressLabel}>{t((['rewardLowGem', 'rewardCoins300', 'rewardMediumGem', 'rewardPioneer', 'rewardCoins1000', 'rewardHighGem'] as const)[index - 13])}</Text>
               <Text style={styles.progressLabel}>{index === 13 ? `${t('tree')} ${Math.min(progress.treeLevel, 15)}/15` :
                 index === 14 ? `${t('slot', 2)} · ${t(progress.slots[1] ? 'skinEquipped' : 'emptySlot')}` :
-                index === 15 ? `${t('tree')} ${Math.min(progress.treeLevel, 25)}/25 · ${t('axe')} ${Math.min(highestAxeLevel(progress), 20)}/20` :
+                index === 15 ? `${t('tree')} ${Math.min(progress.treeLevel, 20)}/20 · ${t('axe')} ${Math.min(highestAxeLevel(progress), 25)}/25` :
                 index === 16 ? `${t('tree')} ${Math.min(progress.treeLevel, 50)}/50 · ${t('character')} ${Math.min(level, 10)}/10` :
                 index === 17 ? `${t('pioneerAxe')} ${Math.min(axeLevelFor(progress, 'pioneer'), 10)}/10 · ${t(progress.axeSkin === 'pioneer' ? 'skinEquipped' : 'equipSkin')}` :
                 `${t('tree')} ${Math.min(progress.treeLevel, 100)}/100 · ${t('character')} ${Math.min(level, 20)}/20`}</Text>
@@ -1005,11 +993,33 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             {index === 5 && recordNotice && <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{t(recordNotice.key, recordNotice.value)}</Text>}
           </View>
         ))}
+        {quests[12] === 'complete' && !progress.woodGemDraws && <View style={[styles.questRow, styles.questActive]}>
+          <Text style={styles.walletText}>{t('qWoodGemDraw')}</Text>
+          <Text style={styles.progressLabel}>0/1 · {t('woodGemCost', WOOD_GEM_COST.toLocaleString())}</Text>
+          <Text style={styles.progressLabel}>{t('qWoodGemDrawHint')}</Text>
+          <Pressable accessibilityRole="button" onPress={() => setPanel('gems')} style={styles.languageButton}>
+            <Text style={styles.walletText}>{t('gems')} ›</Text>
+          </Pressable>
+        </View>}
         {signature && <Pressable style={styles.languageButton} onPress={() => {
           Linking.openURL(`https://explorer.solana.com/tx/${signature}?cluster=devnet`).catch(() => setMessage({ key: 'explorerError' }));
         }}><Text style={styles.walletText}>{t('explorer')}</Text></Pressable>}
         {progress.receipt?.status === 'pending' && <Pressable disabled={recording} onPress={handleCheck} style={styles.languageButton}><Text style={styles.walletText}>{t(recording ? 'recording' : 'checkRecord')}</Text></Pressable>}
       </View>
+      {__DEV__ && !online && devWalletSkip && <Text style={styles.progressLabel}>
+        {language === 'ko' ? '개발 테스트: 지갑 퀘스트 화면만 건너뜀 · 실제 연결/서버 저장/기록은 미완료' : 'Development test: wallet quest display skipped only · wallet, server save and record are incomplete'}
+      </Text>}
+      {progress.treeLevel >= 101 && <WardenQuests progress={progress} commit={commit}
+        serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)} />}
+      {online && progress.walletCompleted && server!.snapshot?.walletCoinRewardClaimed === false && <View style={[styles.questRow, styles.questActive]}>
+        <Text style={styles.walletText}>{t('walletCoinLegacy')}</Text>
+        <Text style={styles.progressLabel}>{t('walletCoinReward')}</Text>
+        <Pressable accessibilityRole="button" disabled={server!.busy || server!.pending || server!.queued > 0}
+          onPress={() => server!.command({ type: 'acknowledgeWallet' })}
+          style={[styles.languageButton, (server!.busy || server!.pending || server!.queued > 0) && styles.disabledButton]}>
+          <Text style={styles.walletText}>{t('walletCoinClaim')}</Text>
+        </Pressable>
+      </View>}
       </View>}
       {(panel === 'character' || panel === 'axe' || panel === 'gems') && <CharacterPanel key={panel} initialPage={panel === 'gems' ? 'gems' : panel === 'axe' ? 'axe' : 'overview'} progress={progress} commit={commit} onSkin={handleSkin}
         serverCommand={online ? server!.command : undefined} serverLocked={online && (server!.busy || server!.pending || server!.queued > 0)}
@@ -1036,7 +1046,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           </View>
         </View>
       </Modal>
-      <Modal visible={panel === 'map' || panel === 'community' || panel === 'worldBoss'} animationType="slide"
+      <Modal visible={panel === 'map' || panel === 'farm' || panel === 'community' || panel === 'worldBoss'} animationType="slide"
         onRequestClose={() => setPanel(panel === 'map' ? null : 'map')}>
         <SafeAreaView style={styles.mapSurface}>
           <StatusBar style="light" />
@@ -1046,14 +1056,25 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <Pressable accessibilityRole="button" onPress={() => setPanel(panel === 'map' ? null : 'map')} style={styles.mapBack}>
               <Text style={styles.mapBackText}>{panel !== 'map' ? language === 'ko' ? '‹ 지도' : '‹ Map' : language === 'ko' ? '‹ 숲' : '‹ Forest'}</Text>
             </Pressable>
-            <Text style={styles.mapTitle}>{panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : panel === 'worldBoss' ? language === 'ko' ? '월드보스 숲' : 'World boss forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
+            <Text style={styles.mapTitle}>{panel === 'farm' ? language === 'ko' ? '묘목 농장' : 'Sapling farm' : panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : panel === 'worldBoss' ? language === 'ko' ? '월드보스 숲' : 'World boss forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
             <View style={{ width: 64 }} />
           </View>
           {panel === 'map' ? <ScrollView contentContainerStyle={styles.mapContent}>
-            <ForestMap language={language} communityReady={online && !!server!.snapshot?.community} bossReady={online && !!server!.snapshot?.worldBoss}
-              onPersonal={() => setPanel(null)} onCommunity={() => { setPanel('community'); server!.refresh(); }}
+            <ForestMap language={language} farmReady={progress.treeLevel >= FARM_UNLOCK_LEVEL} communityReady={online && !!server!.snapshot?.community} bossReady={online && !!server!.snapshot?.worldBoss}
+              onPersonal={() => setPanel(null)} onFarm={() => setPanel('farm')} onCommunity={() => { setPanel('community'); server!.refresh(); }}
               onWorldBoss={() => { setPanel('worldBoss'); server!.refresh(); }} />
-          </ScrollView> : panel === 'community' && online && server!.snapshot?.community ? <CommunityWorld state={server!.snapshot.community}
+          </ScrollView> : panel === 'farm' ? <FarmWorld progress={progress} now={online ? server!.now : now}
+            locked={online && (server!.busy || server!.pending || server!.queued > 0)}
+            onStart={plot => {
+              if (online) { server!.command({ type: 'startFarmPuzzle', plot }); return; }
+              commit(startFarmPuzzle(progressRef.current, Date.now(), Math.floor(Math.random() * 2_147_483_648), plot));
+            }} onPlant={rotations => {
+              if (online) { server!.command({ type: 'finishFarmPuzzle', rotations }); return; }
+              commit(finishFarmPuzzle(progressRef.current, Date.now(), rotations));
+            }} onClaim={plot => {
+              if (online) { server!.command({ type: 'claimFarmTree', plot }); return; }
+              commit(claimFarmTree(progressRef.current, Date.now(), plot));
+            }} /> : panel === 'community' && online && server!.snapshot?.community ? <CommunityWorld state={server!.snapshot.community}
             pet={server!.snapshot.squirrel} now={server!.now} treeLevel={progress.treeLevel} language={language}
             command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />
             : panel === 'worldBoss' && online && server!.snapshot?.worldBoss ? <WorldBossWorld state={server!.snapshot.worldBoss}
@@ -1203,24 +1224,15 @@ const styles = StyleSheet.create({
   holdGlow: { position: 'absolute', left: '49%', bottom: '25%', width: 92, height: 92, borderRadius: 46, backgroundColor: '#FFF4A3', zIndex: 4 },
   forestMapIcon: { fontSize: 25 },
   storageTarget: { position: 'absolute', left: 10, bottom: 3, zIndex: 8, width: 116, height: 95, alignItems: 'center', justifyContent: 'flex-end' },
-  storageArt: { width: 85, height: 57, alignItems: 'center', justifyContent: 'flex-end' },
-  storageTop: { position: 'absolute', top: 3, width: 84, height: 16, borderRadius: 5, backgroundColor: '#C28A4D', borderWidth: 3, borderColor: '#EDC079', zIndex: 1 },
-  storageBody: { width: 75, height: 43, borderRadius: 6, backgroundColor: '#8E5D37', borderWidth: 3, borderColor: '#D9A666', flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'center' },
-  storagePlank: { width: 5, height: 33, borderRadius: 2, backgroundColor: '#D9A666' },
+  storageArt: { width: 96, height: 62 },
   storageLabel: { color: '#FFF2D1', fontSize: 12, fontWeight: '900', backgroundColor: '#17352EC9', borderRadius: 7, overflow: 'hidden', paddingHorizontal: 6, marginTop: 2 },
-  trolleyTarget: { position: 'absolute', right: 15, bottom: 3, zIndex: 9, width: 122, height: 92 },
-  trolleyButton: { flex: 1, alignItems: 'center', justifyContent: 'flex-end', paddingBottom: 2 },
-  trolleyArt: { width: 88, height: 48, alignItems: 'center', justifyContent: 'flex-end' },
-  trolleyCargoStack: { position: 'absolute', bottom: 25, width: 72, height: 31, alignItems: 'center', justifyContent: 'flex-end', zIndex: 1 },
-  trolleyCargoLog: { width: 59, height: 12, marginBottom: -2, borderRadius: 6, borderWidth: 1, borderColor: '#EBC38B', backgroundColor: '#A8693D', flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
-  trolleyCargoMiddle: { marginLeft: 9, backgroundColor: '#BA7845' },
-  trolleyCargoEnd: { width: 10, height: 10, borderRadius: 5, borderWidth: 2, borderColor: '#C98A53', backgroundColor: '#F0BB73' },
-  trolleyCargoGrain: { width: 30, height: 2, marginLeft: 5, borderRadius: 1, backgroundColor: '#D99C65' },
-  trolleyBed: { width: 78, height: 27, borderRadius: 5, backgroundColor: '#A96A3D', borderWidth: 3, borderColor: '#E1AF6A', borderTopWidth: 5 },
-  trolleyWheelLeft: { position: 'absolute', bottom: -3, left: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
-  trolleyWheelRight: { position: 'absolute', bottom: -3, right: 10, width: 16, height: 16, borderRadius: 8, backgroundColor: '#243735', borderWidth: 3, borderColor: '#C79A5D' },
-  trolleyCount: { color: '#FFF2D1', fontSize: 11, fontWeight: '900', textAlign: 'center', backgroundColor: '#17352EC9', borderRadius: 7, overflow: 'hidden', paddingHorizontal: 5, marginTop: 2 },
-  trolleyHint: { color: '#FFDF75', fontSize: 10, fontWeight: '800', textAlign: 'center', textShadowColor: '#17352E', textShadowRadius: 3 },
+  trolleyTarget: { position: 'absolute', right: 15, bottom: 3, zIndex: 9, width: 126, height: 110 },
+  trolleyButton: { flex: 1, alignItems: 'center' },
+  trolleyArt: { position: 'absolute', bottom: 18, width: 116, height: 78 },
+  trolleyGround: { position: 'absolute', bottom: 4, left: 25, width: 86, height: 5, borderRadius: 50, backgroundColor: '#163E2B45' },
+  trolleySprite: { width: 116, height: 78 },
+  trolleyCount: { position: 'absolute', bottom: 1, maxWidth: 126, color: '#FFF2D1', fontSize: 11, fontWeight: '900', textAlign: 'center', backgroundColor: '#17352EC9', borderRadius: 7, overflow: 'hidden', paddingHorizontal: 5 },
+  trolleyHint: { position: 'absolute', top: 0, maxWidth: 126, color: '#FFE59A', fontSize: 10, fontWeight: '800', textAlign: 'center', backgroundColor: '#17352EB8', borderRadius: 5, overflow: 'hidden', paddingHorizontal: 4, paddingVertical: 2 },
   rewardPreview: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   avatarAxePosition: { position: 'absolute', top: 72, marginLeft: 125 },
   container: { flex: 1, backgroundColor: '#102D32', paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight ?? 24 : 0 },

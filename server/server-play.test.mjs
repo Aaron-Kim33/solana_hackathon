@@ -90,7 +90,7 @@ test('another account and exact-expiry collection fail; client rewards rejected'
   const f = fixture(t), state = f.store.execute('alice', f.command('hit')), dropId = state.drops[0].id;
   assert.throws(() => f.store.execute('bob', f.command('collectDrop', { dropId }, 'bob')), /DROP_UNAVAILABLE/);
   assert.throws(() => f.store.execute('alice', f.command('hit', { damage: 999 })), /INVALID_COMMAND/);
-  f.advance(5000);
+  f.advance(6000);
   assert.throws(() => f.store.execute('alice', f.command('collectDrop', { dropId })), /DROP_UNAVAILABLE/);
   assert.equal(f.store.load('alice').progress.wood, 10);
 });

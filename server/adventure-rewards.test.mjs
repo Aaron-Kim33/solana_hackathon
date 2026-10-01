@@ -17,7 +17,7 @@ function fixture(t) {
   const db = new DatabaseSync(path);
   t.after(() => { db.close(); for (const s of stores) { try { s.close(); } catch {} } rmSync(folder, { recursive: true, force: true }); });
   const seed = changes => db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify({
-    ...initialProgress('ko'), treeLevel: 50, treeHp: treeHealth(50), axeLevel: 20, xp: xpFloor(10),
+    ...initialProgress('ko'), treeLevel: 50, treeHp: treeHealth(50), axeLevel: 25, xp: xpFloor(10),
     harvested: 1000, walletCompleted: true, receipt: { address: 'test', signature: 'test', status: 'confirmed' },
     firstRecordClaimed: true, skinQuestHarvestStart: 900, growthRewardClaimed: true,
     rewardOption: 'low:damage', gemSlotQuestDone: true, slots: ['low:damage', 'low:damage'], ...changes,
@@ -68,6 +68,16 @@ test('server validates prerequisites and rolls back reward, receipt and audit to
   assert.equal(db.prepare('SELECT count(*) AS n FROM commands').get().n, 0);
   db.exec('DROP TRIGGER fail_event');
   assert.equal(store.execute('alice', request(0)).progress.adventureClaimed, 1);
+});
+
+test('third adventure reward requires tree 20 and an owned axe at level 25', t => {
+  const { store, seed } = fixture(t);
+  seed({ adventureClaimed: 2, treeLevel: 19, treeHp: treeHealth(19), axeLevel: 25 });
+  assert.throws(() => store.execute('alice', request(2, 0, 'too_small_tree')), /ACTION_UNAVAILABLE/);
+  seed({ adventureClaimed: 2, treeLevel: 20, treeHp: treeHealth(20), axeLevel: 24 });
+  assert.throws(() => store.execute('alice', request(2, 0, 'too_small_axe')), /ACTION_UNAVAILABLE/);
+  seed({ adventureClaimed: 2, treeLevel: 20, treeHp: treeHealth(20), axeLevel: 25 });
+  assert.equal(store.execute('alice', request(2, 0, 'new_boundary')).progress.gems.medium, 1);
 });
 
 test('adventure commands reject invalid stage and client-selected reward', () => {

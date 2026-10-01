@@ -11,7 +11,13 @@ The player holds to chop an ancient tree, sweeps fallen wood into a trolley or d
 3. Collect 20 wood to unlock the wallet quest. Connect a compatible Solana Mobile Wallet Adapter wallet to use server-saved progress. Local practice progress is separate and is not imported into the server account.
 4. Continue the quest chain to the Devnet First Record. The wallet asks for a transaction signature at that step; ordinary chopping does not require a blockchain approval. The server verifies the finalized record and grants the reward once.
 
-The preview uses Solana **Devnet**. It does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. Purchases, pets, and ranked rewards are future plans, not features of this submission.
+The preview uses Solana **Devnet**. It does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. Paid purchases and ranked rewards remain future work.
+
+## Current source and release status
+
+The current source also includes a shared forest with daily/weekly material quests, contributions to a mine and sapling trail, and a squirrel pet that explores either facility for four hours. Facility levels affect the expedition reward quoted at departure. The world-boss forest records up to 100 attacks per account each week; **boss reward settlement is not implemented**. A small sapling farm unlocks at tree level 15, with a randomized water-path puzzle and accumulated karma; karma has no spending/reward system yet.
+
+These are source-level features, not proof that the downloadable APK or hosted API contains the same version. See [release candidate checks](docs/release-candidate-2026-10-01.md) for verified checks and remaining real-device gates. Demo accounts with prior progression must be identified; ordinary chopping and community activity are server-managed, not on-chain transactions.
 
 ## Architecture
 
@@ -29,7 +35,7 @@ Use Node 24, Java 17, Android SDK and an Android emulator or device. Solana Mobi
 ```powershell
 npm ci
 npx expo run:android
-node --experimental-strip-types --test src/*.test.mjs src/game/*.test.mjs src/solana/*.test.mjs server/*.test.mjs scripts/*.test.mjs
+node --experimental-strip-types --test src/*.test.mjs src/game/*.test.mjs src/solana/*.test.mjs src/shared/*.test.mjs server/*.test.mjs scripts/*.test.mjs
 npx tsc --noEmit
 ```
 

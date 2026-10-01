@@ -123,6 +123,15 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
           </Pressable></View><Text style={s.muted}>Lv. {progress.axeLevel} / {AXE_MAX}</Text>
         <Text style={s.statNumber}>{t('attackPower')} {range(stats)}</Text>
       </View></View>
+      <View style={s.upgradeCard}>
+        <View style={s.heading}><View style={s.heading}><Text style={s.section}>{t('axeUpgrade')}</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={t('coinHint')} onPress={() => Alert.alert(t('axeUpgrade'), t('coinHint'))} hitSlop={8}>
+            <Text style={s.muted}>ⓘ</Text>
+          </Pressable></View>{progress.axeLevel < AXE_MAX && delta(1)}</View>
+        <Text style={s.muted}>{t('ownedCoins', progress.coins)}</Text>
+        {button(t(progress.axeLevel >= AXE_MAX ? 'maxLevel' : 'axeCoinCost', axeCost(progress.axeLevel)), onUpgrade,
+          !axeUpgradeReady(progress))}
+      </View>
       <Text style={s.section}>{t('optionSlots')}</Text>
       <View style={s.row}>{([0, 1] as const).map(index => <Pressable key={index} accessibilityRole="button"
         accessibilityLabel={t('editSlot', index + 1)} onPress={() => { setSlot(index); go('options'); }} style={[s.slot, progress.slots[index] && s.slotFilled]}>
@@ -134,12 +143,6 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       {progress.axeSkin === 'pioneer' && <Text style={s.bonus}>{t('pioneerBonus')}</Text>}
       {progress.axeSkin === 'warden' && <Text style={s.bonus}>{t('wardenBonus')}</Text>}
       {mastery(progress.axeSkin)}
-      <View style={s.card}><View style={s.heading}><Text style={s.section}>{t('axeUpgrade')}</Text>{progress.axeLevel < AXE_MAX && delta(1)}</View>
-        <Text style={s.muted}>{t('ownedCoins', progress.coins)}</Text>
-        <Text style={s.muted}>{t('coinHint')}</Text>
-        {button(t(progress.axeLevel >= AXE_MAX ? 'maxLevel' : 'axeCoinCost', axeCost(progress.axeLevel)), onUpgrade,
-          !axeUpgradeReady(progress))}
-      </View>
     </>}
 
     {page === 'wardrobe' && <>
@@ -356,7 +359,8 @@ const s = StyleSheet.create({
   stat: { flex: 1, gap: 6, padding: 12, backgroundColor: '#173537', borderRadius: 14 }, statNumber: { color: '#F5E8C8', fontSize: 19, fontWeight: '800' },
   back: { paddingVertical: 12, paddingHorizontal: 8 }, button: { padding: 15, backgroundColor: '#EFC75E', borderRadius: 14, alignItems: 'center' },
   buttonText: { color: '#3A3224', fontWeight: '900', fontSize: 14 }, disabled: { opacity: 0.4 },
-  equipmentHero: { flexDirection: 'row', alignItems: 'center', gap: 18, backgroundColor: '#224749', borderRadius: 20, padding: 20 },
+  equipmentHero: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#224749', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 8 },
+  upgradeCard: { paddingHorizontal: 14, paddingVertical: 10, gap: 6, borderRadius: 16, borderWidth: 1, borderColor: '#8D783F', backgroundColor: '#193A3C' },
   slot: { flex: 1, alignItems: 'center', gap: 8, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: '#42645B', backgroundColor: '#183638' },
   slotFilled: { borderColor: '#76AE96' }, slotIcon: { fontSize: 25, color: '#93CBA9' }, selected: { borderColor: '#EFC75E', backgroundColor: '#2A4A42' },
   bonus: { fontSize: 12, fontWeight: '700', color: '#A2DEC0', flexShrink: 1 }, delta: { fontWeight: '900', fontSize: 16 },

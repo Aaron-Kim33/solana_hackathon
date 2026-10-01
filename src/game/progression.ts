@@ -1,3 +1,5 @@
+import type { FarmState } from './farm';
+
 export const RECOVERY_MS = 30 * 60 * 1000;
 export const AXE_MAX = 200;
 export const CHARACTER_MAX = 200;
@@ -50,6 +52,7 @@ export function drawWoodGem(state: Progress, random: () => number = Math.random)
     if (roll * 100 < cumulative) {
       if (!Number.isSafeInteger(state.gems[entry.tier] + 1)) return null;
       return { tier: entry.tier, state: { ...state, wood: state.wood - WOOD_GEM_COST,
+        woodGemDraws: (state.woodGemDraws ?? 0) + 1,
         gems: { ...state.gems, [entry.tier]: state.gems[entry.tier] + 1 } } };
     }
   }
@@ -88,6 +91,8 @@ export const TROLLEY_RETURN_MS = 2000;
 export type TrolleyTrip = { departedAt: number; arrivesAt: number; returnsAt: number };
 export type Progress = {
   version: 9; language: 'ko' | 'en'; wood: number; trolleyWood: number; trolleyTrip: TrolleyTrip | null; coins: number; harvested: number; xp: number;
+  woodGemDraws?: number;
+  farm?: FarmState;
   autoPickupTrial?: { startedAt: number };
   bosses?: { first: boolean; gate: boolean };
   wardenRewardsClaimed?: number;
@@ -290,7 +295,7 @@ export function adventureReady(state: Progress, index = state.adventureClaimed):
   switch (index) {
     case 0: return state.treeLevel >= 15;
     case 1: return state.slots[1] !== null;
-    case 2: return state.treeLevel >= 25 && highestAxeLevel(state) >= 20;
+    case 2: return state.treeLevel >= 20 && highestAxeLevel(state) >= 25;
     case 3: return state.treeLevel >= 50 && characterLevel(state.xp) >= 10;
     case 4: return state.axeSkin === 'pioneer' && state.axeLevel >= 10;
     case 5: return state.treeLevel >= 100 && characterLevel(state.xp) >= 20;
@@ -429,6 +434,17 @@ export function parseProgress(raw: string): Progress {
     typeof state.autoPickupTrial !== 'object' || Array.isArray(state.autoPickupTrial) ||
     !Number.isSafeInteger(state.autoPickupTrial.startedAt) || state.autoPickupTrial.startedAt < 0 ||
     state.autoPickupTrial.startedAt > Number.MAX_SAFE_INTEGER - 1800000 || state.treeLevel < 50)) throw new Error('INVALID_SAVE');
+  if (state.farm !== undefined) {
+    const farm = state.farm;
+    const validInteger = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+    if (!farm || !validInteger(farm.karma) || !validInteger(farm.grown) || farm.karma !== farm.grown ||
+      !validInteger(farm.dayStart) || farm.dayStart % 86_400_000 !== 0 || !validInteger(farm.plantedToday) || farm.plantedToday > 3 ||
+      !Array.isArray(farm.plots) || farm.plots.length !== 2 || farm.plots.some(plot => plot !== null &&
+        (!plot || !validInteger(plot.plantedAt) || !validInteger(plot.readyAt) || plot.readyAt <= plot.plantedAt || typeof plot.quick !== 'boolean')) ||
+      (farm.puzzle !== null && (!farm.puzzle || !validInteger(farm.puzzle.seed) || farm.puzzle.seed > 2_147_483_647 ||
+        !validInteger(farm.puzzle.startedAt) || (farm.puzzle.plot !== 0 && farm.puzzle.plot !== 1) || farm.plots[farm.puzzle.plot] !== null)))
+      throw new Error('INVALID_SAVE');
+  }
   // Older saves may hold more HP than the shortened opening trees. Preserve every
   // level and resource, but cap only the remaining HP at the new encounter maximum.
   state.treeHp = Math.min(state.treeHp, encounterHealth(state));
@@ -450,6 +466,7 @@ function parseSavedProgress(raw: string): Progress {
   const legacy = s?.version === 1;
   if (!s || ![1, 2, 3, 4, 5, 6, 7, 8, 9].includes(s.version) || !['ko', 'en'].includes(s.language) ||
     !integer(s.wood, 0) || !integer(s.trolleyWood, 0) || !integer(s.harvested, 0) || s.wood > s.harvested + STARTER_WOOD || !integer(s.xp, 0) ||
+    (s.woodGemDraws !== undefined && !integer(s.woodGemDraws, 0)) ||
     (s.trolleyTrip !== null && (!s.trolleyTrip || typeof s.trolleyTrip !== 'object' || Array.isArray(s.trolleyTrip) ||
       !integer(s.trolleyTrip.departedAt, 0) || s.trolleyTrip.arrivesAt !== s.trolleyTrip.departedAt + TROLLEY_OUTBOUND_MS ||
       s.trolleyTrip.returnsAt !== s.trolleyTrip.arrivesAt + TROLLEY_RETURN_MS || !integer(s.trolleyTrip.returnsAt, 0))) ||
@@ -505,7 +522,8 @@ function parseSavedProgress(raw: string): Progress {
   if (s.version === 6) return { ...s, version: 9, ...adventureDefaults(), ...talentDefaults() };
   if (!integer(s.adventureClaimed, 0, 6) || !integer(s.xpBonusRemainder, 0, s.version === 7 ? 9 : 99) ||
     (s.adventureClaimed > 0 && (!s.gemSlotQuestDone || s.treeLevel < 15)) ||
-    (s.adventureClaimed >= 3 && (s.treeLevel < 25 || highestAxeLevel(s) < 20)) ||
+    (s.adventureClaimed >= 3 && !((s.treeLevel >= 25 && highestAxeLevel(s) >= 20) ||
+      (s.treeLevel >= 20 && highestAxeLevel(s) >= 25))) ||
     (s.adventureClaimed >= 4 && (s.treeLevel < 50 || characterLevel(s.xp) < 10)) ||
     (s.adventureClaimed >= 5 && axeLevelFor(s, 'pioneer') < 10) ||
     (s.adventureClaimed >= 6 && (s.treeLevel < 100 || characterLevel(s.xp) < 20)) ||

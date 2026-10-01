@@ -6,7 +6,7 @@ test('draw spends exactly wood cost and awards a gem, not an option or equipment
   const state = ready();
   const result = drawWoodGem(state, () => 0.8);
   assert.equal(result.tier, 'medium');
-  assert.deepEqual(result.state, { ...state, wood: 0, gems: { ...state.gems, medium: 1 } });
+  assert.deepEqual(result.state, { ...state, wood: 0, woodGemDraws: 1, gems: { ...state.gems, medium: 1 } });
   assert.equal(state.wood, WOOD_GEM_COST);
   assert.equal(drawWoodGem(result.state), null);
   assert.deepEqual(parseProgress(JSON.stringify(result.state)), result.state);
@@ -14,6 +14,15 @@ test('draw spends exactly wood cost and awards a gem, not an option or equipment
   assert.equal(opened.item, 'medium:damage');
   assert.equal(opened.state.gems.medium, 0);
   assert.deepEqual(opened.state.slots, [null, null]);
+});
+test('bonus quest tracks only completed wood draws and preserves old saves', () => {
+  const legacy = parseProgress(JSON.stringify(ready()));
+  assert.equal(legacy.woodGemDraws, undefined);
+  assert.equal(drawWoodGem({ ...legacy, wood: 9999 }, () => 0), null);
+  const first = drawWoodGem(legacy, () => 0);
+  assert.equal(first.state.woodGemDraws, 1);
+  assert.equal(drawWoodGem({ ...first.state, wood: WOOD_GEM_COST }, () => 0).state.woodGemDraws, 2);
+  assert.throws(() => parseProgress(JSON.stringify({ ...legacy, woodGemDraws: -1 })), /INVALID_SAVE/);
 });
 test('odds and exact boundaries are 70/25/5 and never award later tiers', () => {
   const counts = { low: 0, medium: 0, high: 0 };

@@ -6,11 +6,13 @@ import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.t
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
 import { SQUIRREL_EXPEDITION_MS, squirrelReward } from '../src/shared/pets.ts';
+import { startFarmPuzzle, finishFarmPuzzle, claimFarmTree } from '../src/game/farm.ts';
+import { WOOD_DROP_ACCEPT_MS } from '../src/shared/drop-lifetime.ts';
 
 
 // Server-only single-host persistence. No network endpoint or authentication is provided here.
 // accountId must be resolved by a future authenticated session, never trusted from an HTTP body.
-export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 ** 32, now = Date.now } = {}) {
+export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 ** 32, now = Date.now, mode = 'local' } = {}) {
   const db = new DatabaseSync(path, { timeout: 5000 });
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
@@ -79,6 +81,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         reward INTEGER NOT NULL DEFAULT 0 CHECK(reward >= 0),
         trips INTEGER NOT NULL DEFAULT 0 CHECK(trips >= 0)
       ) STRICT;
+      ${mode === 'local' ? 'CREATE TABLE IF NOT EXISTS local_test_admins (player_id TEXT PRIMARY KEY REFERENCES players(id)) STRICT;' : ''}
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
       PRAGMA user_version = 6;
       COMMIT;
@@ -88,6 +91,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,80}$/.test(value)) throw new Error('INVALID_PLAYER_ID');
     return value;
   };
+  const isLocalTestAdmin = accountId => mode === 'local' && !!db.prepare('SELECT 1 FROM local_test_admins WHERE player_id=?').get(accountId);
   const communitySnapshot = (accountId, time) => {
     const dayStart = communityDayStart(time), weekStart = communityWeekStart(time);
     const today = db.prepare('SELECT hits,bundles,trolleys FROM community_activity WHERE player_id=? AND day_start=?').get(accountId, dayStart) ?? { hits: 0, bundles: 0, trolleys: 0 };
@@ -130,13 +134,28 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
     const play = db.prepare('SELECT drops FROM play_state WHERE player_id = ?').get(accountId);
     const time = now();
     const walletCoinRewardClaimed = !!db.prepare('SELECT 1 FROM wallet_coin_grants WHERE player_id = ?').get(accountId);
-    return { revision: row.revision, provenance: row.provenance, progress: parseProgress(row.progress), walletCoinRewardClaimed,
+    const progress = parseProgress(row.progress);
+    return { revision: row.revision, provenance: row.provenance,
+      progress: isLocalTestAdmin(accountId) ? { ...progress, fatigue: 0, recoveryAt: null } : progress, walletCoinRewardClaimed,
       community: communitySnapshot(accountId, time),
       worldBoss: worldBossSnapshot(accountId, time),
       squirrel: squirrelSnapshot(accountId),
       drops: play ? JSON.parse(play.drops).filter(drop => drop.expiresAt > time) : [], serverTime: time };
   };
   return {
+    // Operator-only local test grant. No HTTP route or client command can call this.
+    grantLocalTestAdmin(wallet) {
+      if (mode !== 'local') throw new Error('LOCAL_ADMIN_ONLY');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const linked = db.prepare('SELECT player_id FROM wallet_links WHERE wallet=?').get(wallet);
+        if (!linked) throw new Error('PLAYER_NOT_FOUND');
+        db.prepare('INSERT OR IGNORE INTO local_test_admins (player_id) VALUES (?)').run(linked.player_id);
+        db.prepare("UPDATE players SET provenance='local-test' WHERE id=?").run(linked.player_id);
+        db.exec('COMMIT');
+        return linked.player_id;
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     // Fresh records only. No API exists to import a mobile save as ranked progress.
     createPlayer(accountId, language = 'ko') {
       if (!['ko', 'en'].includes(language)) throw new Error('INVALID_LANGUAGE');
@@ -148,7 +167,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+      const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -159,6 +178,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           return response;
         }
         const before = load(accountId);
+        const testAdmin = isLocalTestAdmin(accountId);
         const time = now(), c = r.command;
         let after;
         if (c.type === 'claimSquirrel') {
@@ -200,9 +220,9 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           const current = recover(before.progress, time);
           if (current.fatigue >= 100) throw new Error('ACTION_UNAVAILABLE');
           const { damage, critical } = rollCombatDamage(current, random);
-          const fatigueSaved = current.axeSkin === 'recovery' && recoveryOwned(current) && random() < 0.3;
-          const next = { ...current, fatigue: Math.min(100, current.fatigue + (fatigueSaved ? 0 : 1)),
-            recoveryAt: fatigueSaved ? current.recoveryAt : current.recoveryAt ?? time };
+          const fatigueSaved = !testAdmin && current.axeSkin === 'recovery' && recoveryOwned(current) && random() < 0.3;
+          const next = { ...current, fatigue: testAdmin ? 0 : Math.min(100, current.fatigue + (fatigueSaved ? 0 : 1)),
+            recoveryAt: testAdmin ? null : fatigueSaved ? current.recoveryAt : current.recoveryAt ?? time };
           const weekStart = worldBossWeekStart(time);
           db.prepare('INSERT INTO world_boss_hits VALUES (?,?,1,?) ON CONFLICT(player_id,week_start) DO UPDATE SET hits=hits+1,damage=ROUND(damage+excluded.damage,2)')
             .run(accountId, weekStart, damage);
@@ -231,11 +251,14 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
           db.prepare('INSERT INTO community_balances VALUES (?,?,?) ON CONFLICT(player_id,week_start) DO UPDATE SET materials=materials+excluded.materials')
             .run(accountId, weekStart, quest.materials);
           after = { ...before, revision: before.revision + 1 };
-        } else if (['acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
+        } else if (['startFarmPuzzle', 'finishFarmPuzzle', 'claimFarmTree', 'acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
-          if (c.type === 'acknowledgeWallet') {
+          if (c.type === 'startFarmPuzzle') next = startFarmPuzzle(before.progress, time, Math.floor(random() * 2_147_483_648), c.plot);
+          else if (c.type === 'finishFarmPuzzle') next = finishFarmPuzzle(before.progress, time, c.rotations);
+          else if (c.type === 'claimFarmTree') next = claimFarmTree(before.progress, time, c.plot);
+          else if (c.type === 'acknowledgeWallet') {
             if (!walletUnlocked(before.progress) || !db.prepare('SELECT wallet FROM wallet_links WHERE player_id=?').get(accountId)) throw new Error('ACTION_UNAVAILABLE');
             if (before.walletCoinRewardClaimed) throw new Error('ACTION_UNAVAILABLE');
             const coins = before.progress.coins + 20;
@@ -277,9 +300,10 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
               const at = start + index * attackInterval;
               const result = hit(next, at, random, false);
               if (!result) { if (index === 0) throw new Error('ACTION_UNAVAILABLE'); break; }
-              next = result.state; lastDamage = result.damage; lastHit = at;
+              next = testAdmin ? { ...result.state, fatigue: 0, recoveryAt: null } : result.state;
+              lastDamage = result.damage; lastHit = at;
               hitEvents.push({ hit: next.totalHits, damage: result.damage, critical: result.critical });
-              if (result.manualWood > 0) drops.push({ id: randomUUID(), value: result.manualWood, expiresAt: at + 5000 });
+              if (result.manualWood > 0) drops.push({ id: randomUUID(), value: result.manualWood, expiresAt: at + WOOD_DROP_ACCEPT_MS });
             }
           } else if (c.type === 'collectDrop' || c.type === 'loadTrolley') {
             const drop = drops.find(d => d.id === c.dropId);

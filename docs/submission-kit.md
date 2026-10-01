@@ -4,7 +4,9 @@ This is preparation, not a claim that the current source has passed real-device 
 
 ## One-sentence pitch
 
-Lumber Rush turns a simple mobile chopping game into a tactile decision loop: hold to strike, pause to sweep expiring wood into a trolley, grow your forest, and connect a Solana wallet to preserve progress and sign a verifiable first record on Devnet.
+Lumber Rush is a cozy mobile forest game where one-finger harvesting fuels personal growth and weekly community facilities, whose levels improve squirrel expeditions; MWA wallet identity preserves server progress and a verified Devnet First Record marks the player's first milestone.
+
+This pitch describes current source capabilities. Verify the shared-facility/expedition loop in the final hosted build before presenting it as demonstrated functionality. Community progress is server-managed, not an on-chain vote or proof of unique humans.
 
 ## What judges can actually try
 
@@ -14,19 +16,21 @@ Lumber Rush turns a simple mobile chopping game into a tactile decision loop: ho
 4. Upgrade the tree and equipped axe, view the character and quest panels, and watch the first-harvest progress.
 5. After 20 collected wood, connect a compatible MWA wallet. Explain that local practice is separate from the server account.
 6. Complete the Devnet First Record only when the account is eligible and the wallet has sufficient Devnet SOL. Show the wallet approval, on-chain transaction link, one-time reward, and persistence after restarting the app.
+7. On a clearly labeled progressed account, open the map and shared forest. Claim quest materials, contribute to a facility, and show the updated shared totals from another account. Claim the squirrel once and dispatch it to the mine or sapling trail; the quoted reward depends on tree/facility levels at departure.
+8. If verified in the final APK, briefly show the sapling farm and water-path puzzle. Karma currently accumulates but has no spending system. The world-boss scene records weekly attacks/damage but does not distribute rewards.
 
-Do not describe planned SOL/SKR purchases, pets, rankings, airdrops, or mainnet token rewards as working features. Do not claim every chop is on-chain; that would be incorrect and a poor mobile experience.
+Do not describe planned SOL/SKR purchases, ranked rewards, boss settlement, airdrops, automatic pet trips or mainnet token rewards as working features. Do not claim every chop is on-chain; that would be incorrect and a poor mobile experience.
 
 ## Three-minute demo video outline
 
 | Time | Actual footage / narration |
 | --- | --- |
-| 0:00–0:20 | Name, one-sentence hook, Android app opening with no development overlay. |
-| 0:20–0:55 | Hold-to-chop animation; release and sweep logs; show 5-second urgency and direct storage alternative. |
-| 0:55–1:20 | Dispatch trolley, keep playing during its three-second outward trip, receive stored wood only on arrival. |
-| 1:20–1:50 | Quest, forest/axe progression, fatigue and reason to return. Use a real account, not an invented ranking. |
-| 1:50–2:35 | Wallet login and a real finalized Devnet First Record, or clearly label a cut to a previously prepared eligible account. Show one-time reward and re-opened server state. |
-| 2:35–3:00 | Why mobile/Solana, bilingual support, current limits and next release milestone. |
+| 0:00–0:15 | Name, shared-forest hook, standalone Android app opening. |
+| 0:15–0:50 | Hold, sweep and dispatch trolley; receive wood on arrival. Show upgrades and short onboarding. |
+| 0:50–1:35 | Real wallet login and finalized Devnet First Record; one-time reward and restored server state. Label any cut to an eligible account. |
+| 1:35–2:25 | Label a progressed account; quest materials → facility contributions visible from two accounts → improved squirrel reward quote. |
+| 2:25–2:45 | Real pet return/one-time collection footage from a completed trip; optionally a brief planting puzzle. Never fast-forward server time on the submitted API. |
+| 2:45–3:00 | Why mobile/Solana, current limits and next milestone. |
 
 If wallet approval takes longer than expected, record the real sequence in separate takes and disclose any cut. Never splice a different account into a continuous-looking transaction flow without labeling it.
 
@@ -35,8 +39,8 @@ If wallet approval takes longer than expected, record the real sequence in separ
 1. **Hook:** Chopping is easy; deciding when to stop and secure a five-second drop is the game.
 2. **Mobile play:** One-finger hold, sweep and trolley; short sessions; tactile progression and quests.
 3. **Solana use today:** MWA wallet sign-in, server-saved identity, explicit verified Devnet First Record and one-time reward. Ordinary combat stays off-chain.
-4. **Why return:** Forest, axe, character and gem progression, fatigue cadence, bilingual onboarding. Show real footage and no unmeasured retention numbers.
-5. **Current build / roadmap:** Working APK and source links after verification. Fair competition, pets, optional purchases and SKR are future work, not current features.
+4. **Why return / differentiation:** Personal harvesting → limited quest materials → weekly community facilities → improved squirrel expeditions. Show actual cross-account state and no unmeasured retention numbers; this is not Seeker ownership verification.
+5. **Current build / roadmap:** Verified APK/source links, planting prototype and weekly boss participation. Boss settlement, fair ranked rewards, paid purchases and SKR remain future work.
 
 ## Submission gate
 

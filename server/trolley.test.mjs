@@ -81,7 +81,7 @@ test('trolley rejects fabricated and expired drops without minting wood', t => {
   assert.throws(() => parseRequest({ requestId: 'trolley_fake_01', expectedRevision: 0,
     command: { type: 'loadTrolley', dropId: 'fabricated', value: 999 } }), /INVALID_COMMAND/);
   const hit = store.execute('alice', { requestId: 'trolley_hit_02', expectedRevision: 0, command: { type: 'hit' } });
-  time += 5001;
+  time += 6001;
   assert.throws(() => store.execute('alice', { requestId: 'trolley_late_01', expectedRevision: 1,
     command: { type: 'loadTrolley', dropId: hit.drops[0].id } }), /DROP_UNAVAILABLE/);
   assert.equal(store.load('alice').progress.trolleyWood, 0);
@@ -105,7 +105,9 @@ test('one sweep atomically loads multiple live drops and cannot be replayed for 
   const ids = second.drops.map(drop => drop.id);
   assert.equal(ids.length, 2);
   const command = { requestId: 'sweep_load_01', expectedRevision: 2, command: { type: 'loadTrolleyBatch', dropIds: ids } };
-  time += 200;
+  // The first log is already hidden at 5s, but an in-flight sweep is accepted
+  // during the one-second server grace period.
+  time += 3500;
   const loaded = store.execute('alice', command);
   assert.equal(loaded.progress.trolleyWood, first.drops[0].value + second.drops[1].value);
   assert.equal(loaded.progress.wood, 0);
