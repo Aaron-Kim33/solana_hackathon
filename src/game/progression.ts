@@ -93,6 +93,8 @@ export type TrolleyTrip = { departedAt: number; arrivesAt: number; returnsAt: nu
 export type Progress = {
   version: 9; language: 'ko' | 'en'; wood: number; trolleyWood: number; trolleyTrip: TrolleyTrip | null; coins: number; harvested: number; xp: number;
   woodGemDraws?: number;
+  fatiguePotionsUsed?: number;
+  forestTrailClaimed?: number;
   farm?: FarmState;
   autoPickupTrial?: { startedAt: number };
   bosses?: { first: boolean; gate: boolean };
@@ -102,6 +104,7 @@ export type Progress = {
   adventureClaimed: number; xpBonusRemainder: number;
   axeLevel: number; treeLevel: number; treeHp: number; fatigue: number;
   recoveryAt: number | null; walletCompleted: boolean; receipt: Receipt | null;
+  mainnetReceipt?: Receipt;
   slots: [OptionId | null, OptionId | null]; inventory: OptionId[]; totalHits: number;
   firstRecordClaimed: boolean; axeSkin: AxeId; skinQuestHarvestStart: number | null;
   gems: Record<GemTier, number>; growthRewardClaimed: boolean; rewardOption: OptionId | null; gemSlotQuestDone: boolean;
@@ -248,7 +251,7 @@ export const attackIntervalMs = (state: Progress) => firstRecordBonusActive(stat
 export const skinQuestCollected = (state: Pick<Progress, 'harvested' | 'skinQuestHarvestStart'>) => state.skinQuestHarvestStart == null ? 0
   : Math.min(100, Math.max(0, state.harvested - state.skinQuestHarvestStart));
 export function claimFirstRecord(state: Progress): Progress {
-  if (state.firstRecordClaimed || state.receipt?.status !== 'confirmed' || questSteps(state)[6] !== 'active') return state;
+  if (state.firstRecordClaimed || questSteps(state)[6] !== 'active') return state;
   // Claim unlocks the axe. First equip records the separate permanent bonus unlock.
   return { ...state, firstRecordClaimed: true };
 }
@@ -269,6 +272,13 @@ export const axeLevelFor = (state: Progress, skin: Progress['axeSkin']) =>
   skin === state.axeSkin ? state.axeLevel : state.unequippedAxeLevels[skin] ?? 1;
 export const highestAxeLevel = (state: Progress) => Math.max(state.axeLevel, ...Object.values(state.unequippedAxeLevels));
 export const pioneerOwned = (state: Progress) => state.adventureClaimed >= 4;
+// One potion is earned by claiming the second-slot quest, immediately before
+// Forest Pioneer. Derivation also grants it to legacy accounts without replaying rewards.
+export const fatiguePotionCount = (state: Progress) => (state.adventureClaimed >= 2 ? 1 : 0) - (state.fatiguePotionsUsed ?? 0);
+export function useFatiguePotion(state: Progress): Progress {
+  if (fatiguePotionCount(state) <= 0 || state.fatigue <= 0) return state;
+  return { ...state, fatiguePotionsUsed: (state.fatiguePotionsUsed ?? 0) + 1, fatigue: 0, recoveryAt: null };
+}
 export const wardenOwned = (state: Progress) => state.treeLevel >= 101;
 export const recoveryOwned = (state: Progress) => pioneerOwned(state) && axeLevelFor(state, 'pioneer') >= 150;
 export const MASTERY_VALUES = { default: [1, 2, 3], firstRecord: [1, 2, 3], pioneer: [2, 5, 8], warden: [3, 6, 10] } as const;
@@ -291,6 +301,36 @@ export function claimWardenReward(state: Progress): Progress {
 }
 export const hitXpBonusPercent = (state: Progress) => (state.axeSkin === 'pioneer' ? 10 : 0) + talentValue('learning', state.talents.learning) + masteryBonus(state, 'firstRecord');
 export const displayedHitXp = (state: Progress) => hitXp(state.treeLevel) * (100 + hitXpBonusPercent(state)) / 100;
+// Stable extra objectives: never renumber the six saved adventure rewards.
+export const FOREST_TRAIL = [
+  { tree: 25, coins: 150, gem: null },
+  { tree: 30, coins: 200, gem: 'low' },
+  { tree: 35, coins: 250, gem: null },
+  { tree: 40, coins: 300, gem: 'low' },
+  { tree: 45, coins: 350, gem: null },
+  { tree: 55, coins: 400, gem: null },
+  { tree: 60, coins: 450, gem: 'low' },
+  { tree: 70, coins: 500, gem: null },
+  { tree: 80, coins: 550, gem: 'medium' },
+  { tree: 90, coins: 600, gem: null },
+] as const;
+// Accounts already beyond a chapter keep their old rewards and skip its new steps.
+export const forestTrailClaimed = (state: Progress) => Math.max(state.forestTrailClaimed ?? 0,
+  state.adventureClaimed >= 6 ? 10 : state.adventureClaimed >= 4 ? 5 : 0);
+export function nextForestTrail(state: Progress) {
+  const index = forestTrailClaimed(state);
+  if (index >= FOREST_TRAIL.length || state.adventureClaimed < (index < 5 ? 3 : 5) ||
+    !questSteps(state).slice(0, 13).every(status => status === 'complete')) return null;
+  return { ...FOREST_TRAIL[index], index, ready: state.treeLevel >= FOREST_TRAIL[index].tree };
+}
+export function claimForestTrail(state: Progress, index: number): Progress {
+  const quest = nextForestTrail(state);
+  if (!quest || quest.index !== index || !quest.ready) return state;
+  const coins = state.coins + quest.coins;
+  if (!Number.isSafeInteger(coins) || (quest.gem && !Number.isSafeInteger(state.gems[quest.gem] + 1))) return state;
+  return { ...state, forestTrailClaimed: index + 1, coins,
+    gems: quest.gem ? { ...state.gems, [quest.gem]: state.gems[quest.gem] + 1 } : state.gems };
+}
 export function adventureReady(state: Progress, index = state.adventureClaimed): boolean {
   if (!state.gemSlotQuestDone || index !== state.adventureClaimed) return false;
   switch (index) {
@@ -412,9 +452,13 @@ export function testRest(state: Progress, now: number): Progress {
   const fatigue = Math.max(0, current.fatigue - 28);
   return { ...current, fatigue, recoveryAt: fatigue === 0 ? null : current.recoveryAt };
 }
+export const growthMilestoneReady = (state: Progress) => walletUnlocked(state) && state.walletCompleted &&
+  highestAxeLevel(state) >= 2 && characterLevel(state.xp) >= 2 && state.treeLevel >= 2;
 export function questSteps(state: Progress) {
+  // Slot 5 is retained for save/UI index compatibility, but no longer gates play
+  // on a receipt. The separate optional Mainnet record never changes this chain.
   const conditions = [walletUnlocked(state), state.walletCompleted, highestAxeLevel(state) >= 2,
-    characterLevel(state.xp) >= 2, state.treeLevel >= 2, state.receipt?.status === 'confirmed',
+    characterLevel(state.xp) >= 2, state.treeLevel >= 2, growthMilestoneReady(state),
     state.firstRecordClaimed, state.skinQuestHarvestStart != null, skinQuestCollected(state) >= 100,
     state.treeLevel >= 10 && characterLevel(state.xp) >= 5 && highestAxeLevel(state) >= 15,
     state.growthRewardClaimed, state.rewardOption !== null, state.gemSlotQuestDone,
@@ -429,6 +473,13 @@ export function questSteps(state: Progress) {
 export function parseProgress(raw: string): Progress {
   const oldVersion = JSON.parse(raw)?.version;
   const state = parseSavedProgress(raw);
+  if (state.forestTrailClaimed !== undefined && (!Number.isSafeInteger(state.forestTrailClaimed) ||
+    state.forestTrailClaimed < 0 || state.forestTrailClaimed > FOREST_TRAIL.length ||
+    (state.forestTrailClaimed > 0 && (state.adventureClaimed < 3 ||
+      state.treeLevel < FOREST_TRAIL[state.forestTrailClaimed - 1].tree)) ||
+    (state.forestTrailClaimed > 5 && state.adventureClaimed < 5))) throw new Error('INVALID_SAVE');
+  if (state.fatiguePotionsUsed !== undefined && (!Number.isSafeInteger(state.fatiguePotionsUsed) ||
+    state.fatiguePotionsUsed < 0 || state.fatiguePotionsUsed > (state.adventureClaimed >= 2 ? 1 : 0))) throw new Error('INVALID_SAVE');
   const rewards = state.wardenRewardsClaimed;
   if (rewards !== undefined && (!Number.isInteger(rewards) || rewards < 0 || rewards > 3 ||
     (rewards > 0 && (!wardenOwned(state) || axeLevelFor(state, 'warden') < WARDEN_TARGETS[rewards - 1])))) throw new Error('INVALID_SAVE');
@@ -505,7 +556,8 @@ function parseSavedProgress(raw: string): Progress {
   if (s.version === 2) return migrateEconomy({ ...s, version: 4, ...gemDefaults(),
     firstRecordClaimed: false, axeSkin: 'default', skinQuestHarvestStart: null });
   if (typeof s.firstRecordClaimed !== 'boolean' || !(s.version >= 9 ? ['default', 'firstRecord', 'pioneer', 'warden', 'recovery'] : s.version >= 7 ? ['default', 'firstRecord', 'pioneer'] : ['default', 'firstRecord']).includes(s.axeSkin) ||
-    (s.firstRecordClaimed && s.receipt?.status !== 'confirmed') ||
+    (s.firstRecordClaimed && s.receipt?.status !== 'confirmed' && !growthMilestoneReady(s)) ||
+    (s.mainnetReceipt !== undefined && (!s.mainnetReceipt || typeof s.mainnetReceipt.address !== 'string' || typeof s.mainnetReceipt.signature !== 'string' || !['pending', 'confirmed', 'failed'].includes(s.mainnetReceipt.status))) ||
     (!s.firstRecordClaimed && (!['default', 'warden'].includes(s.axeSkin) || s.skinQuestHarvestStart !== null)) ||
     (s.skinQuestHarvestStart !== null && !integer(s.skinQuestHarvestStart, 0, s.harvested)) ||
     (s.axeSkin === 'firstRecord' && s.skinQuestHarvestStart === null)) throw new Error('INVALID_SAVE');

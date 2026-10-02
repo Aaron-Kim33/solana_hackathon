@@ -2,20 +2,21 @@
 
 Lumber Rush is a mobile-first forest progression game for Android, built with React Native, Expo, Solana Mobile Wallet Adapter, and a small authoritative game API. This repository is the source for the CLOCK IN Solana Mobile Hackathon entry.
 
-The player holds to chop an ancient tree, sweeps fallen wood into a trolley or drags it to storage, and spends earned resources on tree and axe progression. Quests introduce the mechanics. A connected Devnet wallet identifies a server-saved player and can sign the First Record transaction; the server verifies that record before granting its one-time reward. The app supports English and Korean.
+The player holds to chop an ancient tree, sweeps fallen wood into a trolley or drags it to storage, and spends earned resources on tree and axe progression. Quests introduce the mechanics. Mainnet wallet login uses a free message signature to identify a server-saved player. Growth rewards never require an on-chain transaction. Players may optionally publish their first growth milestone as a Mainnet Memo, verified by the server. The app supports English and Korean.
 
 ## Play the submitted build
 
 1. Install the Android APK linked in the hackathon submission. It is a standalone build: Metro, a PC server, and `adb reverse` are not needed.
 2. Open Lumber Rush and follow the short tutorial. Hold on the tree to chop; release and sweep the dropped wood toward the trolley, or drag it into the storage crate. Tap a loaded trolley to send it to storage.
 3. Collect 20 wood to unlock the wallet quest. Connect a compatible Solana Mobile Wallet Adapter wallet to use server-saved progress. Local practice progress is separate and is not imported into the server account.
-4. Continue the quest chain to the Devnet First Record. The wallet asks for a transaction signature at that step; ordinary chopping does not require a blockchain approval. The server verifies the finalized record and grants the reward once.
+4. Complete the early growth quests and claim the free First Growth Axe. Equip it to continue. No SOL balance or transaction is required for this reward.
+5. Optional: choose the commemorative record below the main quests. Review the real SOL network fee and public Memo notice before signing with a Mainnet wallet. Cancel, lack of SOL or a record-service outage never prevents progression. Recording adds a verified badge and Explorer link, not extra currency or combat advantages.
 
-The preview uses Solana **Devnet**. It does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. Paid purchases and ranked rewards remain future work.
+The current source uses **Mainnet** for wallet authorization and optional records. Older installed previews used Devnet; those receipts are preserved and labelled separately. The game does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. These changes require server deployment and a new APK before they describe a downloadable build.
 
 ## Current source and release status
 
-The current source also includes a shared forest with daily/weekly material quests, contributions to a mine and sapling trail, and a squirrel pet that explores either facility for four hours. Facility levels affect the expedition reward quoted at departure. The world-boss forest records up to 100 attacks per account each week; **boss reward settlement is not implemented**. A small sapling farm unlocks at tree level 15, with a randomized water-path puzzle and accumulated karma; karma has no spending/reward system yet.
+The current source also includes a shared forest with daily/weekly material quests, contributions to a mine and sapling trail, and a squirrel pet that explores either facility for four hours. Facility levels affect the expedition reward quoted at departure. The world-boss forest records up to 100 attacks per account each week; **boss reward settlement is not implemented**. The sapling farm unlocks at tree level 15: plant, solve a water-path puzzle, grow and collect karma. Spend 4 karma for 20 minutes of double wood and coins from chopping and felling only. Original CC0 music and sound effects have separate volume controls.
 
 These are source-level features, not proof that the downloadable APK or hosted API contains the same version. See [release candidate checks](docs/release-candidate-2026-10-01.md) for verified checks and remaining real-device gates. Demo accounts with prior progression must be identified; ordinary chopping and community activity are server-managed, not on-chain transactions.
 

@@ -20,8 +20,7 @@ import {
 import { GameAudioProvider, AudioSettingsControls, SoundPressable as Pressable, useGameAudio } from './src/audio/GameAudio';
 import { progressCues } from './src/audio/policy';
 import { connectWallet, ConnectedWallet } from './src/solana/wallet';
-import { recordHarvest, checkHarvest } from './src/solana/achievement';
-import { recordErrorKey } from './src/solana/record-errors';
+import { checkHarvest } from './src/solana/achievement';
 import { CharacterPanel } from './src/game/CharacterPanel';
 import { GemArt } from './src/game/GemArt';
 import { ForesterSprite } from './src/game/ForesterSprite';
@@ -45,7 +44,7 @@ import { questView } from './src/game/quest-view';
 import { GameMessage, Language, translate, TranslationKey } from './src/i18n';
 import { AXE_MAX, CHARACTER_MAX, TREE_MAX, RECOVERY_MS, initialProgress, recover, hit, collect, loadTrolley, dispatchTrolley, upgrade, testRest,
   combatStats, treeAppearance, equip, grantTestOptions, OPTION_ITEMS, OptionId,
-  claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
+  claimFirstRecord, claimGrowthReward, claimAdventure, adventureReady, nextForestTrail, claimForestTrail, fatiguePotionCount, useFatiguePotion, axeLevelFor, displayedHitXp, equipAxeSkin, skinQuestCollected, firstRecordBonusActive, attackIntervalMs,
   treeHealth, trolleyCapacity, axeCost, axeUpgradeReady, treeCost, characterLevel, xpFloor, xpRequired, hitXp, treeCoins, highestAxeLevel, walletUnlocked, questSteps, regrow, WOOD_GEM_COST, Progress } from './src/game/progression';
 import { loadProgress, saveProgress } from './src/game/storage';
 import { deployment } from './src/deployment';
@@ -183,10 +182,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const unlocked = walletUnlocked(progress);
   const quests = useMemo(() => questSteps(questProgress), [questProgress]);
   const visibleQuests = useMemo(() => questView(quests), [quests]);
+  const trailQuest = nextForestTrail(questProgress);
   const shortcut = questShortcut(questProgress, quests);
   useEffect(() => {
     if (panel === 'quests') panelScroll.current?.scrollTo({ y: 0, animated: false });
-  }, [panel, visibleQuests.active]);
+  }, [panel, visibleQuests.active, trailQuest?.index]);
   const [now, setNow] = useState(Date.now());
   const squirrel = online ? server!.snapshot?.squirrel : undefined;
   const shortcutUnlocks = forestShortcutUnlocks(progress, squirrel, online ? server!.snapshot?.community : undefined);
@@ -201,7 +201,9 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const [mode, setMode] = useState<'chop' | 'collect'>('chop');
   const setLanguage = (language: Language) => { onLanguage(language); if (!online) commit({ ...progressRef.current, language }); };
   const t = (key: TranslationKey, value?: string | number) => translate(language, key, value);
-  const shortcutLabel = shortcut?.key === 'nextQuest' ? t('nextQuest', t(shortcut.quest))
+  const trailTitle = trailQuest ? t('qForestTrail', trailQuest.tree) : '';
+  const trailReward = trailQuest ? `${t('forestTrailReward', trailQuest.coins)}${trailQuest.gem ? ` + ${t(trailQuest.gem)} ${t('gems')} ×1` : ''}` : '';
+  const shortcutLabel = trailQuest ? t('nextQuest', trailTitle) : shortcut?.key === 'nextQuest' ? t('nextQuest', t(shortcut.quest))
     : shortcut ? t(shortcut.key, 'value' in shortcut ? shortcut.value : undefined) : null;
   const [message, setMessage] = useState<GameMessage>({ key: 'intro' });
   const [uiNotice, setUiNotice] = useState<GameMessage | null>(null);
@@ -600,6 +602,22 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const rest = () => {
     if (__DEV__ && !online && commit(testRest(progressRef.current, Date.now()))) setMessage({ key: 'rested' });
   };
+  const handleFatiguePotion = () => {
+    if (fatiguePotionCount(progressRef.current) <= 0 || progressRef.current.fatigue <= 0) return;
+    stopHoldingTree();
+    completeTutorial('potion');
+    Alert.alert(t('fatiguePotion'), t('fatiguePotionConfirm'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('fatiguePotionUse'), onPress: () => {
+        if (serverRef.current?.snapshot) {
+          serverRef.current.command({ type: 'useFatiguePotion' });
+          return;
+        }
+        const next = useFatiguePotion(progressRef.current);
+        if (next !== progressRef.current && commit(next)) setMessage({ key: 'fatiguePotionDone' });
+      } },
+    ]);
+  };
 
   const handleUpgrade = (kind: 'axe' | 'tree') => {
     if (online) {
@@ -670,40 +688,10 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
 
   const handleRecord = () => {
     if (online) {
-      Alert.alert(t('achievement'), t('recordConfirm'), [
-        { text: t('cancel'), style: 'cancel' },
-        { text: t('approve'), onPress: () => { void server!.record(); } },
-      ]);
+      void server!.record();
       return;
     }
-    if (!wallet || questSteps(progressRef.current)[5] !== 'active' || recordLock.current || (signature && progress.receipt?.status !== 'failed')) return;
-    Alert.alert(t('achievement'), t('recordConfirm'), [
-      { text: t('cancel'), style: 'cancel' },
-      { text: t('approve'), onPress: async () => {
-        if (recordLock.current) return;
-        recordLock.current = true;
-        setRecording(true);
-        setRecordNotice({ key: 'recording' });
-        try {
-          const result = await recordHarvest(wallet.publicKey, (submitted) => {
-            if (!commit({ ...progressRef.current, receipt: { address: wallet.publicKey, signature: submitted, status: 'pending' } })) throw new Error('RECORD_SAVE_FAILED');
-          });
-          if (!progressRef.current.receipt || !commit({ ...progressRef.current, receipt: { ...progressRef.current.receipt, status: result.confirmed ? 'confirmed' : 'pending' } })) throw new Error('RECORD_SAVE_FAILED');
-          const key = result.confirmed ? 'recorded' : 'recordPending';
-          setMessage({ key });
-          setRecordNotice({ key });
-          Alert.alert(t('achievement'), t(key));
-        } catch (error) {
-          const key = recordErrorKey(error);
-          setMessage({ key });
-          setRecordNotice({ key });
-          Alert.alert(t('achievement'), t(key));
-        } finally {
-          setRecording(false);
-          recordLock.current = false;
-        }
-      } },
-    ]);
+    Alert.alert(t('achievement'), language === 'ko' ? '기념 기록은 서버 저장에서만 이용할 수 있어요. 로컬 연습과 무료 성장 보상은 계속 진행할 수 있어요.' : 'Records are available in server saves only. Local practice and free growth rewards remain available.');
   };
 
   const handleCheck = async () => {
@@ -896,7 +884,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             onSweepStart={beginSweep} onSweepMove={extendSweep} onSweepEnd={finishSweep} onSweepCancel={cancelSweep} onDraggingChange={syncDragMode} />
         ))}
         {!!gameplayNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={styles.gameplayToast}>{gameplayNotice}</Text>}
-        {tutorialStep && <TutorialNudge step={tutorialStep} language={language} onDismiss={() => completeTutorial(tutorialStep)} />}
+        {tutorialStep && tutorialStep !== 'potion' && <TutorialNudge step={tutorialStep} language={language} onDismiss={() => completeTutorial(tutorialStep)} />}
       </View>
 
       <View style={styles.actions}>
@@ -904,6 +892,16 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <Text style={styles.restIcon}>♨</Text>
           <Text style={styles.restText}>{t('testRest')}</Text>
         </Pressable>}
+        <Pressable accessibilityRole="button" accessibilityLabel={t('fatiguePotionCount', fatiguePotionCount(progress))}
+          accessibilityState={{ disabled: loaded.error || fatiguePotionCount(progress) <= 0 || progress.fatigue <= 0 || (online && (server!.busy || server!.pending || server!.queued > 0)) }}
+          disabled={loaded.error || fatiguePotionCount(progress) <= 0 || progress.fatigue <= 0 || (online && (server!.busy || server!.pending || server!.queued > 0))}
+          onPress={handleFatiguePotion} style={[styles.potionButton, (fatiguePotionCount(progress) <= 0 || progress.fatigue <= 0 || (online && (server!.busy || server!.pending || server!.queued > 0))) && styles.potionButtonInactive, tutorialStep === 'potion' && styles.tutorialTargetGlow]}>
+          <Text style={styles.potionIcon}>🧪</Text>
+          <Text style={styles.potionLabel}>{t('fatiguePotionShort')}</Text>
+          <View pointerEvents="none" style={[styles.potionCountBadge, fatiguePotionCount(progress) === 0 && styles.potionCountEmpty]}>
+            <Text style={[styles.potionCountText, fatiguePotionCount(progress) === 0 && styles.potionCountEmptyText]}>{fatiguePotionCount(progress)}</Text>
+          </View>
+        </Pressable>
         {shortcutLabel ? <Pressable accessibilityRole="button" accessibilityLabel={shortcutLabel} onPress={() => setPanel('quests')} style={styles.cart}>
           <Text style={styles.cartIcon}>{shortcut?.key === 'nextQuest' ? '📜' : '🪵'}</Text>
           <Text numberOfLines={2} style={[styles.cartText, { flexShrink: 1 }]}>{shortcutLabel}</Text>
@@ -911,6 +909,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           <Text style={styles.cartIcon}>🪵</Text>
           <Text style={styles.cartText}>{t('cart')}</Text>
         </View>}
+        {tutorialStep === 'potion' && <TutorialNudge step="potion" language={language} targetLeft={__DEV__ && !online ? 88 : 0} onDismiss={() => completeTutorial('potion')} />}
       </View>
       </View>
       <Modal visible={panel !== null && panel !== 'map' && panel !== 'farm' && panel !== 'community' && panel !== 'worldBoss'} transparent animationType="fade" onRequestClose={() => setPanel(null)}>
@@ -949,9 +948,22 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       <View style={styles.achievement}>
         <Text accessibilityLiveRegion="polite" style={styles.statValue}>{t(visibleQuests.chapter)}</Text>
         {visibleQuests.active < 0 && <Text style={styles.progressLabel}>{t('questsFinishedHint')}</Text>}
-        {visibleQuests.entries.map(({ key, index }) => (
+        {trailQuest && <View style={[styles.questRow, styles.questActive]}>
+          <Text style={styles.walletText}>{trailTitle}</Text>
+          <Text style={styles.progressLabel}>{t('tree')} {Math.min(progress.treeLevel, trailQuest.tree)}/{trailQuest.tree}</Text>
+          <Text style={styles.progressLabel}>{trailReward}</Text>
+          {trailQuest.ready && <Text style={styles.progressLabel}>{t('claimReady')}</Text>}
+          <Pressable accessibilityRole="button" disabled={loaded.error || !trailQuest.ready || (online && (server!.busy || server!.pending || server!.queued > 0))}
+            style={[styles.languageButton, (!trailQuest.ready || (online && (server!.busy || server!.pending || server!.queued > 0))) && styles.disabledButton]}
+            onPress={() => {
+              if (online) { server!.command({ type: 'claimForestTrail', stage: trailQuest.index }); return; }
+              const next = claimForestTrail(progressRef.current, trailQuest.index);
+              if (next !== progressRef.current && commit(next)) Alert.alert(t('rewardClaimed'), trailReward);
+            }}><Text style={styles.walletText}>{t('claimReward')}</Text></Pressable>
+        </View>}
+        {!trailQuest && visibleQuests.entries.filter(({ index }) => index !== 5).map(({ key, index }) => (
           <View key={key} style={[styles.questRow, quests[index] === 'active' && styles.questActive]}>
-            <Text style={styles.walletText}>{index + 1}. {t(key)}</Text>
+            <Text style={styles.walletText}>{index >= 6 ? index : index + 1}. {t(key)}</Text>
             <Text style={styles.progressLabel}>{t(quests[index])}{index === 0 ? ` · ${Math.min(progress.harvested, 20)}/20` : ''}</Text>
             {index >= 13 && <>
               <Text style={styles.progressLabel}>{t((['rewardLowGem', 'rewardCoins300', 'rewardMediumGem', 'rewardPioneer', 'rewardCoins1000', 'rewardHighGem'] as const)[index - 13])}</Text>
@@ -1017,6 +1029,18 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             {index === 5 && recordNotice && <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{t(recordNotice.key, recordNotice.value)}</Text>}
           </View>
         ))}
+        {quests[4] === 'complete' && <View style={styles.questRow}>
+          <Text style={styles.walletText}>{language === 'ko' ? '첫 성장 기념 기록 · 선택' : 'First growth record · Optional'}</Text>
+          <Text style={styles.progressLabel}>{language === 'ko' ? '지갑 연결·성장 보상은 무료예요. 원할 때만 Mainnet에 공개 Memo를 남길 수 있어요. 실제 SOL 수수료가 들며, 기록해도 추가 능력치나 재화는 지급하지 않아요.' : 'Wallet login and growth rewards are free. Optionally publish a public Memo on Mainnet. A real SOL network fee applies; recording grants no extra stats or currency.'}</Text>
+          {progress.mainnetReceipt?.status === 'confirmed' ? <>
+            <Text style={styles.walletText}>{language === 'ko' ? '✦ Mainnet 기념 기록 완료' : '✦ Mainnet milestone recorded'}</Text>
+            <Pressable accessibilityRole="button" style={styles.languageButton} onPress={() => Linking.openURL(`https://explorer.solana.com/tx/${progress.mainnetReceipt!.signature}`).catch(() => setMessage({ key: 'explorerError' }))}><Text style={styles.walletText}>{t('explorer')}</Text></Pressable>
+          </> : <>
+            <Pressable accessibilityRole="button" disabled={!online || server!.busy || !!server!.pending || server!.queued > 0} onPress={handleRecord} style={[styles.languageButton, !online && styles.disabledButton]}><Text style={styles.walletText}>{language === 'ko' ? 'Mainnet 기록 확인 / 남기기' : 'Review / record on Mainnet'}</Text></Pressable>
+            {!online && <Text style={styles.progressLabel}>{language === 'ko' ? '서버 저장에 연결하면 이용할 수 있어요. 연습 진행은 업로드되지 않아요.' : 'Connect a server save to record. Practice progress is not uploaded.'}</Text>}
+            <Pressable accessibilityRole="button" style={styles.languageButton} onPress={() => setPanel(null)}><Text style={styles.walletText}>{language === 'ko' ? '나중에 · 계속 플레이' : 'Not now · Keep playing'}</Text></Pressable>
+          </>}
+        </View>}
         {quests[12] === 'complete' && !progress.woodGemDraws && <View style={[styles.questRow, styles.questActive]}>
           <Text style={styles.walletText}>{t('qWoodGemDraw')}</Text>
           <Text style={styles.progressLabel}>0/1 · {t('woodGemCost', WOOD_GEM_COST.toLocaleString())}</Text>
@@ -1027,7 +1051,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
         </View>}
         {signature && <Pressable style={styles.languageButton} onPress={() => {
           Linking.openURL(`https://explorer.solana.com/tx/${signature}?cluster=devnet`).catch(() => setMessage({ key: 'explorerError' }));
-        }}><Text style={styles.walletText}>{t('explorer')}</Text></Pressable>}
+        }}><Text style={styles.walletText}>{language === 'ko' ? '이전 Devnet 기록 보기' : 'View previous Devnet record'}</Text></Pressable>}
         {progress.receipt?.status === 'pending' && <Pressable disabled={recording} onPress={handleCheck} style={styles.languageButton}><Text style={styles.walletText}>{t(recording ? 'recording' : 'checkRecord')}</Text></Pressable>}
       </View>
       {__DEV__ && !online && devWalletSkip && <Text style={styles.progressLabel}>
@@ -1368,6 +1392,14 @@ const styles = StyleSheet.create({
     color: '#FFF7D8', textAlign: 'center', fontSize: 14, fontWeight: '900',
     textShadowColor: '#102D27', textShadowOffset: { width: 1, height: 2 }, textShadowRadius: 5 },
   actions: { flexDirection: 'row', gap: 10, paddingBottom: 14 },
+  potionButton: { width: 52, minHeight: 52, flexShrink: 0, borderRadius: 14, borderWidth: 2, borderColor: '#F2CB68', backgroundColor: '#315E53', alignItems: 'center', justifyContent: 'center', paddingVertical: 5 },
+  potionButtonInactive: { backgroundColor: '#213D3B', borderColor: '#90A79C' },
+  potionIcon: { fontSize: 27, lineHeight: 30, marginRight: 5 },
+  potionLabel: { color: '#FFF1CD', fontSize: 11, fontWeight: '800', lineHeight: 14 },
+  potionCountBadge: { position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, paddingHorizontal: 3, borderRadius: 9, backgroundColor: '#F3CD65', alignItems: 'center', justifyContent: 'center' },
+  potionCountText: { color: '#233D35', fontSize: 11, fontWeight: '900', lineHeight: 14 },
+  potionCountEmpty: { backgroundColor: '#506B64' },
+  potionCountEmptyText: { color: '#F2F0DE' },
   restButton: { width: 78, borderRadius: 16, backgroundColor: '#355D59', alignItems: 'center', justifyContent: 'center', paddingVertical: 10 },
   restIcon: { fontSize: 21 }, restText: { color: '#E9E6CC', fontSize: 11, fontWeight: '800', marginTop: 1 },
   cart: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#EFC75E', borderRadius: 16, minHeight: 58 },

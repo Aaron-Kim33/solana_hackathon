@@ -7,7 +7,13 @@ export function parseRequest(value: unknown): CommandRequest {
   if (typeof r.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(r.requestId) ||
     !Number.isSafeInteger(r.expectedRevision) || r.expectedRevision < 0 || !r.command || typeof r.command !== 'object') throw new Error('INVALID_COMMAND');
   const c = r.command;
-  if (c.type === 'activateBlessing') {
+  if (c.type === 'claimForestTrail') {
+    if (!Number.isInteger(c.stage) || c.stage < 0 || c.stage > 9 ||
+      Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
+      Object.keys(c).some(key => !['type', 'stage'].includes(key))) throw new Error('INVALID_COMMAND');
+    return r;
+  }
+  if (c.type === 'activateBlessing' || c.type === 'useFatiguePotion') {
     if (Object.keys(r).some(key => !['requestId', 'expectedRevision', 'command'].includes(key)) ||
       Object.keys(c).some(key => key !== 'type')) throw new Error('INVALID_COMMAND');
     return r;

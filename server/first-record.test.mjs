@@ -69,22 +69,23 @@ test('record and reward survive restart, replay, failure and audit rollback', t 
   assert.equal(store.prepareRecord('alice').signature, signature);
 });
 
-test('authenticated HTTP record journey checks chain evidence, never client success flags', async t => {
+for (const mainnet of [false, true]) test(`authenticated ${mainnet ? 'Mainnet milestone' : 'legacy Devnet'} journey checks chain evidence without gating rewards`, async t => {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-record-http-')), path = join(folder, 'test.sqlite');
-  let transaction = null, rpcFailed = false;
-  const options = { path, origin: 'https://lumber-rush.example', readRecordTransaction: async () => { if (rpcFailed) throw new Error('provider offline'); return transaction; } };
+  let transaction = null, rpcFailed = false, checkedNetwork;
+  const recordPath = mainnet ? '/milestone' : '/record';
+  const options = { path, origin: 'https://lumber-rush.example', readRecordTransaction: async (_signature, network) => { checkedNetwork = network; if (rpcFailed) throw new Error('provider offline'); return transaction; } };
   let server = createApi(options);
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { await new Promise(resolve => server.close(resolve)); rmSync(folder, { recursive: true, force: true }); });
   let base = `http://127.0.0.1:${server.address().port}`;
   let token;
-  const post = (route, data) => fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(data) });
+  const post = (route, data) => fetch(base + route.replace('/record', recordPath), { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(data) });
   assert.equal((await post('/record/prepare', {})).status, 401);
   const pair = generateKeyPairSync('ed25519'), wallet = new PublicKey(pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)).toBase58();
   const c = await (await post('/auth/challenge', { wallet })).json();
   const session = await (await post('/auth/login', { challengeId: c.challengeId, signature: sign(null, Buffer.from(c.message), pair.privateKey).toString('base64') })).json();
   token = session.token;
-  const getRecord = () => fetch(base + '/record', { headers: { Authorization: `Bearer ${token}` } });
+  const getRecord = () => fetch(base + recordPath, { headers: { Authorization: `Bearer ${token}` } });
   assert.equal(await (await getRecord()).json(), null);
   assert.equal((await (await post('/record/check', {})).json()).status, 'none');
   assert.equal(await (await getRecord()).json(), null);
@@ -109,20 +110,61 @@ test('authenticated HTTP record journey checks chain evidence, never client succ
   assert.equal(unavailable.status, 503); assert.equal((await unavailable.json()).error, 'RECORD_RPC_UNAVAILABLE');
   assert.equal((await (await getRecord()).json()).status, 'pending');
   rpcFailed = false;
-  assert.equal((await post('/commands', { requestId: 'early_claim', expectedRevision: ack.revision, command: { type: 'claimFirstRecord' } })).status, 409);
+  const freeClaim = await (await post('/commands', { requestId: 'early_claim', expectedRevision: ack.revision, command: { type: 'claimFirstRecord' } })).json();
+  assert.equal(freeClaim.progress.firstRecordClaimed, true);
+  assert.equal(freeClaim.progress.receipt, null);
   transaction = tx({ ...intent, signature, wallet: 'wrong' });
   assert.equal((await post('/record/check', {})).status, 409);
   transaction = tx({ ...intent, signature }); transaction.meta.err = { InstructionError: [0, 'error'] };
   const failed = await (await post('/record/check', {})).json();
-  assert.equal(failed.status, 'failed'); assert.equal(failed.snapshot.progress.firstRecordClaimed, false);
+  assert.equal(failed.status, 'failed'); assert.equal(failed.snapshot.progress.firstRecordClaimed, true);
   const retryIntent = await (await post('/record/prepare', {})).json();
   assert.notEqual(retryIntent.memo, intent.memo);
   assert.equal((await post('/record/submit', { signature: '3'.repeat(88) })).status, 200);
   transaction = tx({ ...retryIntent, signature: '3'.repeat(88) });
   const confirmed = await (await post('/record/check', {})).json();
   assert.equal(confirmed.status, 'confirmed');
+  assert.equal(checkedNetwork, mainnet ? 'mainnet-beta' : 'devnet');
+  assert.equal(confirmed.snapshot.progress[mainnet ? 'mainnetReceipt' : 'receipt'].signature, '3'.repeat(88));
+  if (mainnet) assert.equal(confirmed.snapshot.progress.receipt, null);
   const again = await (await post('/record/check', {})).json();
   assert.equal(again.snapshot.revision, confirmed.snapshot.revision);
-  const claimed = await (await post('/commands', { requestId: 'claim_http', expectedRevision: confirmed.snapshot.revision, command: { type: 'claimFirstRecord' } })).json();
+  const claimed = await (await post('/commands', { requestId: 'early_claim', expectedRevision: ack.revision, command: { type: 'claimFirstRecord' } })).json();
   assert.equal(claimed.progress.firstRecordClaimed, true);
+});
+
+test('optional Mainnet record preserves legacy receipt and free reward across restart', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'lumber-mainnet-')), path = join(folder, 'test.sqlite');
+  let store = openGameStore(path);
+  t.after(() => { store.close(); rmSync(folder, { recursive: true, force: true }); });
+  store.createPlayer('alice');
+  const db = new DatabaseSync(path);
+  db.exec('CREATE TABLE wallet_links (wallet TEXT PRIMARY KEY, player_id TEXT UNIQUE)');
+  db.prepare('INSERT INTO wallet_links VALUES (?,?)').run('wallet', 'alice');
+  db.prepare('UPDATE players SET progress=? WHERE id=?').run(JSON.stringify(ready()), 'alice');
+  store.prepareRecord('alice'); store.submitRecord('alice', signature);
+  const legacy = store.finishRecord('alice', signature, 'confirmed');
+  const claimed = store.execute('alice', { requestId: 'free_reward', expectedRevision: legacy.revision, command: { type: 'claimFirstRecord' } });
+  // Recreate the actual prior schema: migration must not touch the legacy receipt/reward.
+  db.exec('DROP TABLE milestone_records; PRAGMA user_version = 6;');
+  store.close(); store = openGameStore(path);
+  assert.deepEqual(store.load('alice').progress, claimed.progress);
+  const intent = store.prepareRecord('alice', true);
+  assert.match(intent.memo, /first-growth \| mainnet-beta/);
+  assert.equal(store.load('alice').revision, claimed.revision);
+  // Preparing and abandoning a record costs no in-game currency and never blocks the reward.
+  assert.equal(store.load('alice').progress.firstRecordClaimed, true);
+  const mainSignature = '4'.repeat(88);
+  store.submitRecord('alice', mainSignature, true);
+  const confirmed = store.finishRecord('alice', mainSignature, 'confirmed', true);
+  assert.deepEqual(confirmed.progress.receipt, legacy.progress.receipt);
+  assert.equal(confirmed.progress.coins, claimed.progress.coins);
+  assert.equal(confirmed.progress.wood, claimed.progress.wood);
+  store.close(); store = openGameStore(path);
+  assert.deepEqual(store.load('alice').progress, confirmed.progress);
+  assert.equal(store.load('alice').revision, confirmed.revision);
+  assert.equal(store.finishRecord('alice', mainSignature, 'confirmed', true).revision, confirmed.revision);
+  assert.equal(store.recordStatus('alice').signature, signature);
+  assert.equal(store.recordStatus('alice', true).signature, mainSignature);
+  db.close();
 });

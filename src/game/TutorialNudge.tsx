@@ -7,7 +7,7 @@ import type { TutorialStep } from './tutorial';
 const messageKey: Record<TutorialStep, TranslationKey> = {
   chop: 'tutorialChop', storage: 'tutorialStorage', sweep: 'tutorialSweep', trolley: 'tutorialTrolley',
   tree: 'tutorialTree', axe: 'tutorialAxe', character: 'tutorialCharacter', fatigue: 'tutorialFatigue',
-  gem: 'tutorialGem', map: 'tutorialMap', pet: 'tutorialPet',
+  gem: 'tutorialGem', map: 'tutorialMap', pet: 'tutorialPet', potion: 'tutorialPotion',
 };
 const placement: Record<TutorialStep, ViewStyle> = {
   chop: { top: 50, right: 12 },
@@ -21,6 +21,7 @@ const placement: Record<TutorialStep, ViewStyle> = {
   pet: { top: 192, left: 66 },
   character: { bottom: 164, left: 8 },
   fatigue: { top: 8, right: 12 },
+  potion: { bottom: 76, left: 0 },
 };
 const fingerPosition: Record<TutorialStep, ViewStyle> = {
   chop: { left: '66%', top: '50%' },
@@ -34,9 +35,10 @@ const fingerPosition: Record<TutorialStep, ViewStyle> = {
   pet: { left: 30, top: 194 },
   character: { left: '35%', bottom: 127 },
   fatigue: { left: 35, top: 3 },
+  potion: { left: 6, bottom: 18 },
 };
 
-export function TutorialNudge({ step, language, onDismiss }: { step: TutorialStep; language: Language; onDismiss: () => void }) {
+export function TutorialNudge({ step, language, onDismiss, targetLeft = 0 }: { step: TutorialStep; language: Language; onDismiss: () => void; targetLeft?: number }) {
   const phase = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     phase.setValue(0);
@@ -62,6 +64,7 @@ export function TutorialNudge({ step, language, onDismiss }: { step: TutorialSte
       </View>
     </View>
     {step !== 'fatigue' && <Animated.View pointerEvents="none" style={[styles.finger, fingerPosition[step],
+      step === 'potion' && { left: targetLeft + 6 },
       { opacity, transform: [{ translateX: moveX }, { translateY: moveY }, { scale }] }]}>
       <Text style={styles.fingerIcon}>{dragging ? '☝️' : '👆'}</Text>
     </Animated.View>}

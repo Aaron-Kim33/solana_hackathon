@@ -32,27 +32,29 @@ export function createApi({ path, origin, mode = 'local', readRecordTransaction 
       else anonymousLimit(req.socket.remoteAddress ?? 'unknown');
       if (req.headers.origin && req.headers.origin !== origin) return send(403, { error: 'ORIGIN_DENIED' });
       const route = `${req.method} ${req.url}`;
+      const mainnet = req.url === '/milestone' || req.url?.startsWith('/milestone/');
+      const recordRoute = mainnet ? route.replace('/milestone', '/record') : route;
       if (route === 'GET /health') return send(200, mode === 'preview'
         ? { status: 'ok', mode: 'preview', identityOrigin: origin, capabilities: ['trolley-v1', 'starter-wood-10'] }
         : { status: 'ok', mode: 'local-development' });
       if (route === 'POST /auth/challenge') { const b = await body(req, ['wallet']); return send(200, auth.challenge(b.wallet)); }
       if (route === 'POST /auth/login') { const b = await body(req, ['challengeId', 'signature']); return send(200, auth.login(b.challengeId, b.signature)); }
       if (route === 'GET /me') return send(200, game.load(token));
-      if (route === 'GET /record') {
+      if (recordRoute === 'GET /record') {
         auth.authenticate(token);
-        return send(200, store.recordStatus(playerId));
+        return send(200, store.recordStatus(playerId, mainnet));
       }
-      if (route === 'POST /record/prepare') {
+      if (recordRoute === 'POST /record/prepare') {
         auth.authenticate(token); await body(req, []);
-        return send(200, store.prepareRecord(playerId));
+        return send(200, store.prepareRecord(playerId, mainnet));
       }
-      if (route === 'POST /record/submit') {
+      if (recordRoute === 'POST /record/submit') {
         auth.authenticate(token); const b = await body(req, ['signature']);
-        return send(200, store.submitRecord(playerId, b.signature));
+        return send(200, store.submitRecord(playerId, b.signature, mainnet));
       }
-      if (route === 'POST /record/check') {
+      if (recordRoute === 'POST /record/check') {
         auth.authenticate(token); await body(req, []);
-        const intent = store.recordStatus(playerId);
+        const intent = store.recordStatus(playerId, mainnet);
         if (!intent) return send(200, { status: 'none', snapshot: store.load(playerId) });
         if (!intent.signature) return send(200, { status: 'prepared', snapshot: store.load(playerId) });
         if (intent.status === 'confirmed') return send(200, { status: 'confirmed', snapshot: store.load(playerId) });
@@ -62,13 +64,13 @@ export function createApi({ path, origin, mode = 'local', readRecordTransaction 
         let status;
         try {
           let transaction;
-          try { transaction = await readRecordTransaction(intent.signature); }
+          try { transaction = await readRecordTransaction(intent.signature, mainnet ? 'mainnet-beta' : 'devnet'); }
           catch { throw new Error('RECORD_RPC_UNAVAILABLE'); }
           status = verifyRecordTransaction(transaction, intent);
         } finally { recordChecks.delete(playerId); }
         // The session might expire while the RPC request is in flight.
         auth.authenticate(token);
-        const snapshot = status === 'pending' ? store.load(playerId) : store.finishRecord(playerId, intent.signature, status);
+        const snapshot = status === 'pending' ? store.load(playerId) : store.finishRecord(playerId, intent.signature, status, mainnet);
         return send(200, { status, snapshot });
       }
       if (route === 'POST /commands') return send(200, game.execute(token, await body(req, ['requestId', 'expectedRevision', 'command'])));

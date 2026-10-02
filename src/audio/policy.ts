@@ -28,12 +28,13 @@ export type SoundCue = keyof typeof CUES;
 // cue/response prevents several currencies from producing overlapping jingles.
 export function progressCues(before: Progress, after: Progress): SoundCue[] {
   if (before === after) return [];
+  if ((after.fatiguePotionsUsed ?? 0) > (before.fatiguePotionsUsed ?? 0)) return ['magic'];
   if ((after.farm?.blessingUntil ?? 0) > (before.farm?.blessingUntil ?? 0)) return ['magic'];
   if (after.farm?.plots.some((plot, i) => plot && plot.readyAt > 0 && before.farm?.plots[i]?.readyAt === 0)) return ['water'];
   if ((after.farm?.grown ?? 0) > (before.farm?.grown ?? 0)) return ['magic'];
   if (after.farm?.plots.some((plot, i) => plot && plot.plantedAt !== before.farm?.plots[i]?.plantedAt)) return ['plant'];
   if ((!before.firstRecordClaimed && after.firstRecordClaimed) || (!before.growthRewardClaimed && after.growthRewardClaimed) ||
-      after.adventureClaimed > before.adventureClaimed || (after.wardenRewardsClaimed ?? 0) > (before.wardenRewardsClaimed ?? 0) ||
+      after.adventureClaimed > before.adventureClaimed || (after.forestTrailClaimed ?? 0) > (before.forestTrailClaimed ?? 0) || (after.wardenRewardsClaimed ?? 0) > (before.wardenRewardsClaimed ?? 0) ||
       characterLevel(after.xp) > characterLevel(before.xp)) return ['reward'];
   if (after.inventory.length > before.inventory.length || (after.woodGemDraws ?? 0) > (before.woodGemDraws ?? 0)) return ['magic'];
   const gemsUsed = GEM_TIERS.reduce((sum, tier) => sum + Math.max(0, before.gems[tier] - after.gems[tier]), 0);

@@ -48,3 +48,16 @@ test('confirmed server result wins over stale local state and has Korean/English
     assert.ok(recordRecoveryNotice(status, false));
   }
 });
+
+test('Mainnet recovery is separate from legacy Devnet and never signs or prepares', async () => {
+  const calls = [];
+  const recovered = await recoverServerRecord(async (path, payload) => {
+    calls.push([path, payload]);
+    if (path === '/milestone') return { ...intent, signature: null };
+    if (path === '/milestone/submit') return {};
+    if (path === '/milestone/check') return { status: 'pending' };
+    throw new Error('unexpected endpoint');
+  }, () => 'saved_signature', '/milestone');
+  assert.equal(recovered.status, 'pending');
+  assert.deepEqual(calls.map(([path]) => path), ['/milestone', '/milestone/submit', '/milestone/check']);
+});

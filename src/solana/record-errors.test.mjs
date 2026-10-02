@@ -16,5 +16,6 @@ test('errors have stable localizable messages without disclosing wallet payloads
   assert.equal(recordErrorKey(new Error('RECORD_FEE_UNAVAILABLE')), 'recordFeeUnavailable');
   assert.equal(recordErrorKey(new Error('RECORD_SAVE_FAILED')), 'saveError');
   assert.equal(recordErrorKey(new Error('WALLET_ACCOUNT_CHANGED')), 'recordAccountChanged');
+  assert.equal(recordErrorKey(new Error('USER_CANCELLED')), 'recordCancelled');
   assert.equal(recordErrorKey({ secret: 'never display' }), 'recordError');
 });

@@ -79,14 +79,14 @@ test('fatigue stops chopping but does not prevent collecting or upgrading', () =
   assert.equal(collect(full, 3).wood, 3);
   assert.ok(hit(full, RECOVERY_MS, normal));
 });
-test('quests advance sequentially and pending signatures never complete final quest', () => {
+test('quests advance without requiring an optional record', () => {
   let state = { ...collect(initialProgress('ko'), 100), coins: 100, xp: xpFloor(2) };
   state = upgrade({ ...upgrade(state, 'axe'), treeHp: 0 }, 'tree');
   assert.deepEqual(questSteps(state).slice(0, 9), ['complete', 'active', 'locked', 'locked', 'locked', 'locked', 'locked', 'locked', 'locked']);
   state.walletCompleted = true;
-  assert.equal(questSteps(state)[5], 'active');
+  assert.equal(questSteps(state)[5], 'complete');
   state.receipt = { address: 'test', signature: 'test', status: 'pending' };
-  assert.equal(questSteps(state)[5], 'active');
+  assert.equal(questSteps(state)[6], 'active');
   state.receipt.status = 'confirmed';
   assert.ok(questSteps(state).slice(0, 6).every(value => value === 'complete'));
   assert.deepEqual(questSteps(state).slice(6, 9), ['active', 'locked', 'locked']);
@@ -329,10 +329,15 @@ function recordedState(status = 'confirmed') {
     walletCompleted: true, receipt: { address: 'test', signature: 'test', status } };
 }
 
-test('record reward requires confirmation and completed prerequisites; claim does not grant damage', () => {
-  for (const state of [initialProgress('ko'), recordedState('pending'), recordedState('failed'),
+test('free growth reward requires prerequisites but never an on-chain record', () => {
+  for (const state of [initialProgress('ko'),
     { ...recordedState(), walletCompleted: false }]) assert.equal(claimFirstRecord(state), state);
   const before = recordedState();
+  for (const receipt of [null, recordedState('pending').receipt, recordedState('failed').receipt]) {
+    const free = claimFirstRecord({ ...before, receipt });
+    assert.equal(free.firstRecordClaimed, true);
+    assert.equal(parseProgress(JSON.stringify(free)).firstRecordClaimed, true);
+  }
   const claimed = claimFirstRecord(before);
   assert.equal(claimed.firstRecordClaimed, true);
   assert.equal(claimed.axeSkin, 'default');
@@ -409,7 +414,7 @@ test('v3 rejects inconsistent unlocks and quest counters', () => {
   const state = recordedState();
   for (const patch of [{ firstRecordClaimed: 'yes' }, { axeSkin: 'fake' },
     { axeSkin: 'firstRecord' }, { skinQuestHarvestStart: 0 },
-    { firstRecordClaimed: true, receipt: null },
+    { firstRecordClaimed: true, receipt: null, walletCompleted: false },
     { firstRecordClaimed: true, skinQuestHarvestStart: 1001 },
     { firstRecordClaimed: true, skinQuestHarvestStart: -1 },
     { firstRecordClaimed: true, axeSkin: 'firstRecord', skinQuestHarvestStart: null }]) {

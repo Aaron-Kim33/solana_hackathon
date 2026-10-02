@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomInt, randomUUID } from 'node:crypto';
 import { starterProgress, parseProgress, hit, rollCombatDamage, recoveryOwned, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
-import { claimAdventure, drawWoodGem, fuseGems } from '../src/game/progression.ts';
+import { claimAdventure, claimForestTrail, drawWoodGem, fuseGems, growthMilestoneReady, useFatiguePotion } from '../src/game/progression.ts';
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
 import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
 import { SQUIRREL_EXPEDITION_MS, squirrelReward } from '../src/shared/pets.ts';
@@ -17,7 +17,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 6) throw new Error('DATABASE_VERSION_UNSUPPORTED');
+    if (version > 7) throw new Error('DATABASE_VERSION_UNSUPPORTED');
     db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS players (
@@ -41,6 +41,10 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         collect_until INTEGER NOT NULL, drops TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS first_records (
+        player_id TEXT PRIMARY KEY REFERENCES players(id), wallet TEXT NOT NULL,
+        memo TEXT NOT NULL UNIQUE, signature TEXT UNIQUE, status TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS milestone_records (
         player_id TEXT PRIMARY KEY REFERENCES players(id), wallet TEXT NOT NULL,
         memo TEXT NOT NULL UNIQUE, signature TEXT UNIQUE, status TEXT NOT NULL
       ) STRICT;
@@ -83,7 +87,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       ) STRICT;
       ${mode === 'local' ? 'CREATE TABLE IF NOT EXISTS local_test_admins (player_id TEXT PRIMARY KEY REFERENCES players(id)) STRICT;' : ''}
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
-      PRAGMA user_version = 6;
+      PRAGMA user_version = 7;
       COMMIT;
     `);
   } catch (error) { db.close(); throw error; }
@@ -167,7 +171,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'plantFarmSeed' || r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'plantFarmSeed' || r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' || r.command.type === 'claimForestTrail' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -251,11 +255,13 @@ const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.comman
           db.prepare('INSERT INTO community_balances VALUES (?,?,?) ON CONFLICT(player_id,week_start) DO UPDATE SET materials=materials+excluded.materials')
             .run(accountId, weekStart, quest.materials);
           after = { ...before, revision: before.revision + 1 };
-        } else if (['plantFarmSeed', 'activateBlessing', 'startFarmPuzzle', 'finishFarmPuzzle', 'claimFarmTree', 'acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
+        } else if (['claimForestTrail', 'useFatiguePotion', 'plantFarmSeed', 'activateBlessing', 'startFarmPuzzle', 'finishFarmPuzzle', 'claimFarmTree', 'acknowledgeWallet', 'claimFirstRecord', 'claimGrowthReward', 'claimWardenReward', 'claimAdventure', 'openGem', 'equipOption', 'drawGem', 'fuse'].includes(c.type)) {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           let next;
-          if (c.type === 'plantFarmSeed') next = plantFarmSeed(before.progress, time, c.plot);
+          if (c.type === 'useFatiguePotion') next = useFatiguePotion(before.progress);
+          else if (c.type === 'claimForestTrail') next = claimForestTrail(before.progress, c.stage);
+          else if (c.type === 'plantFarmSeed') next = plantFarmSeed(before.progress, time, c.plot);
           else if (c.type === 'activateBlessing') next = activateBlessing(before.progress, time);
           else if (c.type === 'startFarmPuzzle') next = startFarmPuzzle(before.progress, time, Math.floor(random() * 2_147_483_648), c.plot);
           else if (c.type === 'finishFarmPuzzle') next = finishFarmPuzzle(before.progress, time, c.rotations);
@@ -358,48 +364,50 @@ const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.comman
     audit(accountId) {
       return db.prepare('SELECT revision, request_id, command, created_at FROM economy_events WHERE player_id = ? ORDER BY revision').all(id(accountId));
     },
-    recordStatus(accountId) {
+    recordStatus(accountId, mainnet = false) {
       // Read-only: reconnecting must not create a new intent or change progress.
       id(accountId);
-      return db.prepare('SELECT wallet,memo,signature,status FROM first_records WHERE player_id=?').get(accountId) ?? null;
+      return db.prepare(`SELECT wallet,memo,signature,status FROM ${mainnet ? 'milestone_records' : 'first_records'} WHERE player_id=?`).get(accountId) ?? null;
     },
-    prepareRecord(accountId) {
+    prepareRecord(accountId, mainnet = false) {
       const state = load(accountId);
-      const existing = db.prepare('SELECT * FROM first_records WHERE player_id=?').get(accountId);
+      const table = mainnet ? 'milestone_records' : 'first_records';
+      const existing = db.prepare(`SELECT * FROM ${table} WHERE player_id=?`).get(accountId);
       if (existing) return existing;
-      if (questSteps(state.progress)[5] !== 'active') throw new Error('ACTION_UNAVAILABLE');
+      if (!growthMilestoneReady(state.progress)) throw new Error('ACTION_UNAVAILABLE');
       const link = db.prepare('SELECT wallet FROM wallet_links WHERE player_id=?').get(accountId);
       if (!link) throw new Error('UNAUTHENTICATED');
-      const memo = `Lumber Rush | first-harvest | devnet | ${randomUUID()}`;
-      db.prepare('INSERT INTO first_records VALUES (?,?,?,NULL,?)').run(accountId, link.wallet, memo, 'prepared');
-      return db.prepare('SELECT * FROM first_records WHERE player_id=?').get(accountId);
+      const memo = `Lumber Rush | first-growth | ${mainnet ? 'mainnet-beta' : 'devnet'} | ${randomUUID()}`;
+      db.prepare(`INSERT INTO ${table} VALUES (?,?,?,NULL,?)`).run(accountId, link.wallet, memo, 'prepared');
+      return db.prepare(`SELECT * FROM ${table} WHERE player_id=?`).get(accountId);
     },
-    submitRecord(accountId, signature) {
+    submitRecord(accountId, signature, mainnet = false) {
       if (typeof signature !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{64,88}$/.test(signature)) throw new Error('INVALID_BODY');
-      const intent = this.prepareRecord(accountId);
+      const intent = this.prepareRecord(accountId, mainnet);
       if (intent.signature && intent.signature !== signature) throw new Error('RECORD_ALREADY_SUBMITTED');
-      db.prepare('UPDATE first_records SET signature=?,status=? WHERE player_id=? AND signature IS NULL').run(signature, 'pending', accountId);
-      return this.prepareRecord(accountId);
+      db.prepare(`UPDATE ${mainnet ? 'milestone_records' : 'first_records'} SET signature=?,status=? WHERE player_id=? AND signature IS NULL`).run(signature, 'pending', accountId);
+      return this.prepareRecord(accountId, mainnet);
     },
     // Trusted verifier only; never exposed as a public game command.
-    finishRecord(accountId, signature, status) {
+    finishRecord(accountId, signature, status, mainnet = false) {
       if (!['confirmed', 'failed'].includes(status)) throw new Error('INVALID_BODY');
       db.exec('BEGIN IMMEDIATE');
       try {
-        const intent = db.prepare('SELECT * FROM first_records WHERE player_id=?').get(accountId);
+        const table = mainnet ? 'milestone_records' : 'first_records';
+        const intent = db.prepare(`SELECT * FROM ${table} WHERE player_id=?`).get(accountId);
         if (!intent || intent.signature !== signature) throw new Error('INVALID_BODY');
         const before = load(accountId);
         if (intent.status === 'confirmed') { db.exec('COMMIT'); return before; }
-        if (questSteps(before.progress)[5] !== 'active') throw new Error('ACTION_UNAVAILABLE');
-        const progress = { ...before.progress, receipt: { address: intent.wallet, signature, status } };
+        if (!growthMilestoneReady(before.progress)) throw new Error('ACTION_UNAVAILABLE');
+        const progress = { ...before.progress, [mainnet ? 'mainnetReceipt' : 'receipt']: { address: intent.wallet, signature, status } };
         parseProgress(JSON.stringify(progress));
         const revision = before.revision + 1;
         if (!Number.isSafeInteger(revision)) throw new Error('REVISION_OVERFLOW');
         db.prepare('UPDATE players SET progress=?,revision=? WHERE id=?').run(JSON.stringify(progress), revision, accountId);
-        db.prepare('INSERT INTO economy_events VALUES (?,?,?,?,?,?,?)').run(accountId, revision, `record_${signature}`, JSON.stringify({ type: 'verifyFirstRecord', status }), JSON.stringify(before.progress), JSON.stringify(progress), now());
+        db.prepare('INSERT INTO economy_events VALUES (?,?,?,?,?,?,?)').run(accountId, revision, `${mainnet ? 'mainnet' : 'record'}_${signature}`, JSON.stringify({ type: 'verifyFirstRecord', network: mainnet ? 'mainnet-beta' : 'devnet', status }), JSON.stringify(before.progress), JSON.stringify(progress), now());
         // A failed finalized transaction can be replaced; a confirmed one remains permanently bound.
-        if (status === 'failed') db.prepare('DELETE FROM first_records WHERE player_id=?').run(accountId);
-        else db.prepare('UPDATE first_records SET status=? WHERE player_id=?').run(status, accountId);
+        if (status === 'failed') db.prepare(`DELETE FROM ${table} WHERE player_id=?`).run(accountId);
+        else db.prepare(`UPDATE ${table} SET status=? WHERE player_id=?`).run(status, accountId);
         db.exec('COMMIT'); return load(accountId);
       } catch (error) { db.exec('ROLLBACK'); throw error; }
     },

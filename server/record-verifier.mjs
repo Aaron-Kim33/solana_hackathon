@@ -1,8 +1,9 @@
 const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
-// RPC is fixed to Devnet; clients cannot choose a network or provide transaction contents.
-export async function fetchRecordTransaction(signature) {
-  const response = await fetch('https://api.devnet.solana.com', {
+// Network is selected by a fixed server route, never by a client RPC URL.
+export async function fetchRecordTransaction(signature, network = 'devnet') {
+  if (!['devnet', 'mainnet-beta'].includes(network)) throw new Error('INVALID_BODY');
+  const response = await fetch(network === 'mainnet-beta' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(7000),
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTransaction',
       params: [signature, { encoding: 'jsonParsed', commitment: 'finalized', maxSupportedTransactionVersion: 0 }] }),

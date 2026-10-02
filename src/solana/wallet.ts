@@ -31,7 +31,7 @@ function shortenAddress(address: string) {
 export async function connectWallet(): Promise<ConnectedWallet> {
   return transact(async (wallet: Web3MobileWallet) => {
     const authorization = await wallet.authorize({
-      chain: 'solana:devnet',
+      chain: 'solana:mainnet',
       identity: APP_IDENTITY,
     });
 

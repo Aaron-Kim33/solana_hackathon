@@ -8,6 +8,7 @@ export function requireRecordFee(balance: number, fee: number | null) {
 // Only map known errors; never display arbitrary wallet payloads/auth tokens.
 export function recordErrorKey(error: unknown) {
   const message = error instanceof Error ? error.message : '';
+  if (message === 'USER_CANCELLED') return 'recordCancelled';
   if (message === 'RECORD_INSUFFICIENT_SOL') return 'recordNoSol';
   if (message === 'RECORD_FEE_UNAVAILABLE') return 'recordFeeUnavailable';
   if (message === 'RECORD_SAVE_FAILED') return 'saveError';

@@ -1,19 +1,20 @@
 # Lumber Rush game API
 
-Status as of 2026-09-30: the single-replica Node 24 API is deployed in Railway preview mode with a persistent SQLite volume and a public HTTPS endpoint. The Android app can authenticate through a Solana Mobile Wallet Adapter wallet and load server-saved progress. This is a **Devnet hackathon preview**, not a production payment, ranking, or airdrop service.
+Deployed baseline as of 2026-09-30: a single-replica Node 24 API in Railway preview mode, a persistent SQLite volume and a public HTTPS endpoint. Local source now adds optional Mainnet milestones; this change still requires deployment. This is not a production payment, ranking, or airdrop service.
 
 ## Purpose and trust boundary
 
 The app sends player intent. The server checks the wallet-linked session, expected state revision, rate limits, action timing, tree/axe/fatigue rules, drop IDs and five-second expiry, then commits the resulting state. A client cannot submit its own final wood balance, damage, random gem result or score. Successful commands, request receipts and economy audits are stored together in SQLite transactions. Repeating a request ID cannot grant the same successful reward twice; a stale revision is rejected. Local practice saves are separate and are never imported into a connected account.
 
-Normal chopping and collection do **not** create Solana transactions. The explicit First Record quest prepares a unique record, asks the player's wallet to sign a Devnet transaction, checks its network result, then unlocks a one-time reward. Do not describe this record as an NFT, real token, anti-bot proof or ranked score.
+Normal chopping and collection do **not** create Solana transactions. Wallet login is a free message signature. The growth axe reward no longer depends on a chain receipt. Optional Mainnet Memo records add only a badge and Explorer link after server verification. Legacy Devnet records are preserved separately. Do not describe a Memo as an NFT, real token, anti-bot proof or ranked score.
 
 ## API surface
 
 - `GET /health`: preview mode, wallet identity origin and supported client capabilities.
 - `POST /auth/challenge`, `POST /auth/login`, `POST /auth/logout`: short-lived sign-message challenge, signature verification and session lifecycle.
 - `GET /me`, `POST /commands`: authenticated snapshot and game commands, including attacks, ground-drop collection, trolley loading/dispatch/recovery, progression, quests and gems.
-- `GET /record`, `POST /record/prepare`, `POST /record/submit`, `POST /record/check`: First Record state and explicit Devnet verification.
+- `GET /record`, `POST /record/prepare`, `POST /record/submit`, `POST /record/check`: preserved legacy Devnet record state and verification.
+- `GET /milestone`, `POST /milestone/prepare`, `POST /milestone/submit`, `POST /milestone/check`: optional Mainnet milestone state and finalized verification. The server route fixes the network; clients cannot submit a custom RPC URL.
 
 The server accepts JSON bodies up to 4 KiB on its defined POST routes. An authenticated request uses a bearer session token, not a wallet private key. Sessions are stored as token hashes, expire, and can be revoked. Authentication proves control of a wallet address; it does **not** prove one human or prevent all automation.
 

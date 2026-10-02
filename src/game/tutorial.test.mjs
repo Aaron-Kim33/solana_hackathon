@@ -42,3 +42,25 @@ test('gem, map and pet hints appear one at a time and old hint masks remain vali
   assert.equal(nextTutorial(state, mapSeen | tutorialBit('pet'), 0, false, false, shortcuts), null);
   assert.equal(nextTutorial(state, TUTORIAL_LEGACY_ALL_SEEN, 0, true, false, shortcuts), null);
 });
+
+test('first potion receipt introduces recovery without consuming it, even at zero fatigue', () => {
+  const state = { ...initialProgress('ko'), adventureClaimed: 2, fatigue: 0 };
+  const before = structuredClone(state);
+  const previousAllSeen = (1 << 11) - 1;
+  assert.equal(nextTutorial({ ...state, adventureClaimed: 1 }, previousAllSeen, 0, false, false), null);
+  assert.equal(nextTutorial(state, previousAllSeen, 0, false, false), 'potion');
+  assert.equal(nextTutorial(state, previousAllSeen, 0, true, false), null);
+  assert.equal(nextTutorial(state, previousAllSeen, 0, false, true), null);
+  assert.equal(nextTutorial(state, previousAllSeen | tutorialBit('potion'), 0, false, false), null);
+  assert.equal(nextTutorial({ ...state, fatiguePotionsUsed: 1 }, previousAllSeen, 0, false, false), null);
+  assert.deepEqual(state, before);
+});
+
+test('potion hint preserves existing seen bits and takes priority for existing holders', () => {
+  assert.equal(tutorialBit('pet'), 1 << 10);
+  assert.equal(tutorialBit('potion'), 1 << 11);
+  assert.equal(TUTORIAL_ALL_SEEN, 4095);
+  const state = { ...initialProgress('en'), adventureClaimed: 2, fatigue: 90 };
+  assert.equal(nextTutorial(state, TUTORIAL_LEGACY_ALL_SEEN, 0, false, false,
+    { gems: true, map: true, pet: true }), 'potion');
+});

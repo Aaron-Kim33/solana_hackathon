@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, AppState, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Text, View } from 'react-native';
 import { SoundPressable as Pressable, useGameAudio } from '../audio/GameAudio';
 import { serverCues } from '../audio/policy';
 import { Buffer } from 'buffer';
@@ -136,7 +136,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         await api('/health');
         const session = await transact(async wallet => {
           stage = 'AUTHORIZE';
-          const authorization = await wallet.authorize({ chain: 'solana:devnet', identity: APP_IDENTITY });
+          const authorization = await wallet.authorize({ chain: 'solana:mainnet', identity: APP_IDENTITY });
           const account = authorization.accounts[0];
           if (!account) throw new Error('NO_ACCOUNT');
           const address = new PublicKey(Buffer.from(account.address, 'base64')).toBase58();
@@ -164,12 +164,18 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       readyAt.current = Date.now() + 250;
       // A record RPC outage must not turn a successful account login into a login failure.
       try {
-        const recovered = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord);
+        // Retain recovery for receipts submitted by older Devnet previews.
+        // Legacy chain outages must not prevent a newer Mainnet status check.
+        try {
+          const legacy = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord);
+          if (legacy.snapshot) updateState(legacy.snapshot);
+        } catch { /* The optional record may be checked again without resending. */ }
+        const recovered = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord, '/milestone');
         if (recovered.snapshot) updateState(recovered.snapshot);
         setNotice([recordRecoveryNotice(recovered.status, ko), storageWarning].filter(Boolean).join('\n'));
       } catch (error) {
         if (error instanceof Error && error.message === 'UNAUTHENTICATED') await expireSession();
-        setNotice([ko ? '서버 진행은 불러왔지만 기록 상태 확인은 완료하지 못했어요. 새 거래를 보내지 않았어요. 메뉴에서 기록 상태를 다시 확인해 주세요.' : 'Server progress loaded, but record recovery could not finish. No new transaction was sent. Recheck record status from the menu.', storageWarning].filter(Boolean).join('\n'));
+        setNotice([ko ? '서버 진행을 불러왔어요. 선택형 기념 기록은 확인하지 못했지만 계속 플레이할 수 있어요. 새 거래를 보내지 않았어요.' : 'Server progress loaded. Optional record recovery is unavailable, but you can keep playing. No new transaction was sent.', storageWarning].filter(Boolean).join('\n'));
       }
     } catch (error) {
       if (error instanceof Error && error.message === 'UNAUTHENTICATED') await expireSession();
@@ -233,7 +239,8 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
         setNotice(translate(language, 'firstRecordRewardReceived'));
       if (sentType === 'claimGrowthReward' && response.progress.growthRewardClaimed)
         setNotice(`${translate(language, 'rewardClaimed')} · ${translate(language, 'gemReceived')}`);
-      if (sentType === 'claimAdventure') setNotice(translate(language, 'rewardClaimed'));
+      if (sentType === 'claimAdventure' || sentType === 'claimForestTrail') setNotice(translate(language, 'rewardClaimed'));
+      if (sentType === 'useFatiguePotion') setNotice(translate(language, 'fatiguePotionDone'));
       if (sentType === 'claimSquirrel') setNotice(ko ? '다람쥐가 탐험 친구가 되었어요!' : 'The squirrel joined your adventures!');
       if (sentType === 'dispatchSquirrel') setNotice(ko ? '다람쥐가 탐험을 떠났어요. 4시간 뒤 돌아와요.' : 'The squirrel is exploring. It returns in 4 hours.');
       if (sentType === 'collectSquirrel' && beforeSquirrelTrip) setNotice(ko
@@ -300,7 +307,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       setNotice(ko ? '서버가 아직 트롤리를 지원하지 않아요. 서버 업데이트 전에는 목재를 보관함으로 직접 옮겨 주세요.' : 'The server does not support the trolley yet. Move logs directly to storage until it is updated.');
       return false;
     }
-    if (command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
+    if (command.type === 'claimForestTrail' || command.type === 'useFatiguePotion' || command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
       if (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type)) return false;
       if (command.type === 'claimAdventure' && command.stage !== sessionCache.state?.progress.adventureClaimed) return false;
       if (command.type === 'claimFirstRecord' && sessionCache.state?.progress.firstRecordClaimed) return false;
@@ -335,19 +342,25 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   const record = async () => {
     if (lock.current || inputQueue.current.size || sessionCache.pending || collecting.current || !token.current) return;
     lock.current = true; setBusy(true);
-    setNotice(ko ? 'Devnet 기록을 확인하고 있어요. 실제 SOL 결제가 아니에요.' : 'Checking your Devnet record. This is not a real SOL purchase.');
+    setNotice(ko ? '선택형 Mainnet 기념 기록을 준비해요. 성장 보상과는 별개예요.' : 'Preparing an optional Mainnet record, separate from growth rewards.');
     try {
-      const intent = await api('/record/prepare', {}, token.current);
+      const intent = await api('/milestone/prepare', {}, token.current);
       const signature = intent.signature ?? pendingServerRecord(intent.memo);
-      if (signature) await api('/record/submit', { signature }, token.current);
+      if (signature) await api('/milestone/submit', { signature }, token.current);
       else {
         await recordHarvest(intent.wallet, async submitted => {
           // Keep the recovery receipt even when submission to the API fails.
           savePendingServerRecord(intent.memo, submitted);
-          await api('/record/submit', { signature: submitted }, token.current!);
-        }, intent.memo);
+          await api('/milestone/submit', { signature: submitted }, token.current!);
+        }, intent.memo, { approveFee: lamports => new Promise(resolve => Alert.alert(
+          ko ? 'Mainnet 기념 기록 · 선택' : 'Optional Mainnet record',
+          ko ? `네트워크 수수료: ${lamports / 1_000_000_000} SOL (실제 SOL)\n공개 Memo에 성장 이정표를 남겨요. 토큰 구매·목재 소모는 없어요. 기록하지 않아도 도끼와 모든 성장 보상을 받을 수 있어요.\n지갑이 Mainnet인지 확인해 주세요.` : `Network fee: ${lamports / 1_000_000_000} SOL (real SOL)\nPublish your milestone as a public Memo. No token purchase or wood cost. Your axe and all growth rewards remain free without recording.\nMake sure your wallet is on Mainnet.`,
+          [{ text: ko ? '나중에' : 'Not now', style: 'cancel', onPress: () => resolve(false) },
+           { text: ko ? '지갑에서 확인' : 'Review in wallet', onPress: () => resolve(true) }],
+          { cancelable: true, onDismiss: () => resolve(false) },
+        )) });
       }
-      const result = await api('/record/check', {}, token.current);
+      const result = await api('/milestone/check', {}, token.current);
       updateState(result.snapshot);
       setNotice(recordRecoveryNotice(result.status, ko));
     } catch (error) {
@@ -360,9 +373,17 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     if (lock.current || inputQueue.current.size || sessionCache.pending || collecting.current || !token.current) return;
     lock.current = true; setBusy(true);
     try {
-      const recovered = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord);
+      const recovered = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord, '/milestone');
       if (recovered.snapshot) updateState(recovered.snapshot);
-      setNotice(recordRecoveryNotice(recovered.status, ko) || (ko ? '제출된 기록이 없어요. 퀘스트에서 첫 기록을 진행해 주세요.' : 'No submitted record found. Start First Record from Quests.'));
+      if (recovered.status === 'none' || recovered.status === 'prepared') {
+        const legacy = await recoverServerRecord((path, payload) => api(path, payload, token.current!), pendingServerRecord);
+        if (legacy.snapshot) updateState(legacy.snapshot);
+        if (legacy.status !== 'none' && legacy.status !== 'prepared') {
+          setNotice(`${ko ? '이전 Devnet 기록: ' : 'Previous Devnet record: '}${recordRecoveryNotice(legacy.status, ko)}`);
+          return;
+        }
+      }
+      setNotice(recordRecoveryNotice(recovered.status, ko) || (ko ? '기념 기록은 선택이에요. 기록 없이도 퀘스트 보상을 받고 계속 플레이할 수 있어요.' : 'Recording is optional. Claim quest rewards and keep playing without a record.'));
     } catch (error) {
       if (error instanceof Error && error.message === 'UNAUTHENTICATED') await expireSession();
       setNotice(ko ? '기록을 확인하지 못했어요. 잠시 후 다시 확인해 주세요. 거래를 다시 보내거나 보상을 지급하지 않았어요.' : 'Could not check the record. Try again shortly. No transaction was resent and no reward was granted.');
@@ -394,7 +415,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     hit: enqueueHit, dragging: setCollecting, record, checkRecord,
     command: command => !collecting.current && enqueue(command),
     controls: <View style={{ gap: 10 }}>
-      <Text style={{ color: '#B9D5CC' }}>{ko ? '서버 저장 연결 · Devnet 테스트. 기존 로컬 저장과 별도이며 랭킹에는 반영되지 않아요.' : 'Server save connection · Devnet test. Separate from the local save; not ranked.'}</Text>
+      <Text style={{ color: '#B9D5CC' }}>{ko ? '지갑 연결과 서버 저장은 무료예요. 선택형 Mainnet 기념 기록에만 네트워크 수수료가 필요해요. 로컬 연습과 별도이며 랭킹은 준비 중이에요.' : 'Wallet login and server saves are free. Only optional Mainnet records require a network fee. Separate from local practice; rankings are not live.'}</Text>
       {button(token.current ? (ko ? '서버 상태 새로고침' : 'Refresh server state') : (ko ? '서버 저장 연결 · 지갑 서명' : 'Connect server save · Sign with wallet'), false)}
       {state && button(ko ? '서버 로그아웃 · 로컬 저장 복귀' : 'Sign out · Restore local save', true)}
       {state && token.current && <Pressable accessibilityRole="button" disabled={navigationLocked} onPress={() => void checkRecord()} style={{ padding: 12 }}><Text style={{ color: '#E6EFDD' }}>{ko ? '기록 상태 확인 · 거래 재전송 없음' : 'Check record status · No resend'}</Text></Pressable>}

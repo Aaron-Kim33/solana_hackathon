@@ -4,6 +4,8 @@ import type { CommunityQuestId, CommunityFacilityId, CommunitySnapshot } from '.
 import type { WorldBossSnapshot } from './world-boss';
 import type { SquirrelSnapshot } from './pets';
 export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } | { type: 'claimWardenReward' }
+  | { type: 'useFatiguePotion' }
+  | { type: 'claimForestTrail'; stage: number }
   | { type: 'plantFarmSeed'; plot: 0 | 1 } | { type: 'activateBlessing' }
   | { type: 'startFarmPuzzle'; plot: 0 | 1 } | { type: 'finishFarmPuzzle'; rotations: number[] } | { type: 'claimFarmTree'; plot: 0 | 1 }
   | { type: 'claimSquirrel' } | { type: 'dispatchSquirrel'; destination: CommunityFacilityId } | { type: 'collectSquirrel' }
