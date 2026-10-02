@@ -20,6 +20,10 @@ CC0 deed: https://creativecommons.org/publicdomain/zero/1.0/
 
 `scripts/fetch-game-audio.ps1` records exact upstream URLs/ZIP paths and does not overwrite existing assets.
 Original Ogg files are retained without edits; volume and repetition limits are applied at playback.
+2026-10-02 phone tuning: upgrades use the approved quiet `confirmation.ogg` (0.22);
+chopping is 0.8, log landing uses `trolley-load.ogg` at 0.5. The old `upgrade.ogg`
+original is retained for provenance but no longer referenced by the app. Ringer/silent
+mode no longer mutes game audio; media volume and saved in-game toggles still apply.
 Listen and tune on an actual Android device before final release; automated checks do not certify sound quality.
 The suggested extra Forest Ambience layer is deliberately not bundled yet: avoid stacking another musical
 loop under the user's chosen music before listening and approving the mix.

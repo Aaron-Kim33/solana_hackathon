@@ -99,11 +99,30 @@ test('audio failures do not propagate into gameplay', () => {
   const engine = createGameAudio(() => { throw new Error('no native audio'); });
   assert.doesNotThrow(() => { engine.setActive(true); engine.play('click'); engine.setScene('boss'); engine.dispose(); });
 });
+test('game audio follows media volume in silent mode without enabling recording or background playback', () => {
+  const provider = readFileSync(new URL('./GameAudio.tsx', import.meta.url), 'utf8');
+  assert.match(provider, /playsInSilentMode: true/);
+  assert.match(provider, /allowsRecording: false/);
+  assert.match(provider, /shouldPlayInBackground: false/);
+});
+
+test('approved upgrade and audible chopping/landing sounds keep other audio levels unchanged', () => {
+  const sources = readFileSync(new URL('./sources.ts', import.meta.url), 'utf8');
+  assert.ok(sources.includes("upgrade: [require('../../assets/audio/confirmation.ogg')]"));
+  assert.ok(sources.includes("drop: [require('../../assets/audio/trolley-load.ogg')]"));
+  assert.equal(CUES.chop.volume, 0.8);
+  assert.equal(CUES.drop.volume, 0.5);
+  assert.equal(CUES.upgrade.volume, 0.22);
+  assert.equal(CUES.click.volume, 0.32);
+  for (const cue of Object.values(CUES)) assert.ok(cue.volume >= 0 && cue.volume <= 1);
+});
+
 test('all bundled sources are real Ogg files and configuration requests no recording/background playback', () => {
   const root = new URL('../../assets/audio/', import.meta.url), sources = readFileSync(new URL('./sources.ts', import.meta.url), 'utf8');
   const files = [...sources.matchAll(/assets\/audio\/([^']+)/g)].map(match => match[1]);
-  assert.equal(new Set(files).size, 25);
-  assert.deepEqual([...new Set(files)].sort(), readdirSync(root).filter(name => name.endsWith('.ogg')).sort());
+  assert.equal(new Set(files).size, 24);
+  const originals = readdirSync(root).filter(name => name.endsWith('.ogg'));
+  assert.ok([...new Set(files)].every(name => originals.includes(name)));
   for (const file of files) assert.equal(readFileSync(new URL(file, root)).subarray(0, 4).toString(), 'OggS');
   const config = readFileSync(new URL('../../app.config.js', import.meta.url), 'utf8');
   assert.match(config, /microphonePermission: false/); assert.match(config, /recordAudioAndroid: false/);

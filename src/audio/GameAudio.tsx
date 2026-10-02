@@ -20,7 +20,8 @@ export function GameAudioProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const native: typeof import('expo-audio') = require('expo-audio');
-        await native.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: false,
+        // Media volume and in-game toggles govern audio, not the phone ringer mode.
+        await native.setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true,
           shouldPlayInBackground: false, interruptionMode: 'mixWithOthers' });
         if (disposed) return;
         const next = createGameAudio((key, variant) => native.createAudioPlayer(AUDIO_SOURCES[key][variant], { updateInterval: 1000 }));
