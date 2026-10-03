@@ -27,7 +27,7 @@ export function ForestMap({ language, farmReady, communityReady, bossReady, onPe
         style={[s.place, s.community, !communityReady && s.unavailable]}>
         <Text style={s.icon}>🏕️</Text>
         <Text style={s.title}>{ko ? '공동 숲' : 'Community forest'}</Text>
-        <Text style={s.detail}>{ko ? '함께 광산과 묘목길을 키우는 곳' : 'Build the mine and sapling path together'}</Text>
+        <Text style={s.detail}>{ko ? '함께 시설을 키워 다람쥐 탐험 보상 UP' : 'Grow shared facilities for better squirrel rewards'}</Text>
         <Text style={s.enter}>{communityReady ? ko ? '들어가기 ›' : 'Enter ›' : ko ? '서버 저장 연결 후 입장' : 'Connect server save to enter'}</Text>
       </Pressable>
       <View style={s.path}><View style={s.pathDot} /><View style={s.pathLine} /><View style={s.pathDot} /></View>
@@ -37,7 +37,7 @@ export function ForestMap({ language, farmReady, communityReady, bossReady, onPe
         <Text style={s.icon}>🌲</Text>
         <Text style={s.title}>{ko ? '월드보스 숲' : 'World boss forest'}</Text>
         <Text style={s.detail}>{ko ? '무시무시한 나무 괴물 · 주간 100타' : 'Ancient tree monster · 100 weekly hits'}</Text>
-        <Text style={s.enter}>{bossReady ? ko ? '도전하기 ›' : 'Challenge ›' : communityReady ? ko ? '서버 업데이트 후 입장' : 'Update server to enter'
+        <Text style={s.enter}>{bossReady ? ko ? '도전하기 ›' : 'Challenge ›' : communityReady ? ko ? '현재 연결에서 입장 불가' : 'Unavailable on this connection'
           : ko ? '서버 저장 연결 후 입장' : 'Connect server save to enter'}</Text>
       </Pressable>
     </View>

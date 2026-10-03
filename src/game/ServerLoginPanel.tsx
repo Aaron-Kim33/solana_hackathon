@@ -18,6 +18,7 @@ import { createLiveInputQueue } from './live-input-queue';
 import { canLeaveServer, canQueueServerHit } from './server-input-policy';
 import { clearServerSession, readServerSession, writeServerSession } from './server-session';
 import { parseServerSnapshot } from './server-snapshot';
+import { confirmedCollectionTutorial } from './confirmed-tutorial';
 import type { PlayerSnapshot, GameCommand, CommandRequest } from '../shared/server-contract';
 
 // Survives menu navigation, not app reload. Never written to the ordinary save file.
@@ -44,7 +45,8 @@ async function api(path: string, payload?: unknown, token?: string) {
 }
 export type ServerController = {
   snapshot: PlayerSnapshot | null; busy: boolean; queued: number; pending: boolean; now: number; trolleySupported: boolean;
-  canChop: boolean; controls: ReactNode; notice: string;
+  canChop: boolean; controls: ReactNode; notice: string; confirmedTutorialMask: number; retryPending: () => void;
+  resetTutorialConfirmations: () => void;
   connect: () => void; refresh: () => void;
   hit: () => boolean; command: (command: GameCommand) => boolean; dragging: (value: boolean) => void;
   record: () => Promise<void>; checkRecord: () => Promise<void>;
@@ -58,6 +60,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     catch { sessionCache.state = null; return null; }
   }), [notice, setNotice] = useState('');
   const [trolleySupported, setTrolleySupported] = useState(true);
+  const [confirmedTutorialMask, setConfirmedTutorialMask] = useState(0);
   const inputQueue = useRef(createLiveInputQueue());
   const readyAt = useRef(0), foreground = useRef(true);
   const pump = useRef<() => void>(() => {});
@@ -95,6 +98,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   // Expiry must not silently switch a server player into the local economy.
   const expireSession = async () => {
     token.current = null; sessionCache.token = null; sessionCache.pending = null;
+    setConfirmedTutorialMask(0);
     try { await clearServerSession(); return true; } catch { return false; }
   };
   useEffect(() => {
@@ -220,6 +224,8 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       readyAt.current = sentAt + (['collectDrop', 'loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(sentType) ? 300 : 200);
       sessionCache.pending = null;
       response = updateState(response)!;
+      const tutorialMask = confirmedCollectionTutorial(sentCommand, beforeAudio.progress, response.progress);
+      if (tutorialMask) setConfirmedTutorialMask(current => current | tutorialMask);
       for (const cue of serverCues(beforeAudio, response, sentCommand)) playSound(cue);
       if (response.progress.harvested > beforeHarvested && sentType !== 'collectTrolley') {
         const collected = response.progress.harvested - beforeHarvested;
@@ -240,6 +246,8 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
       if (sentType === 'claimGrowthReward' && response.progress.growthRewardClaimed)
         setNotice(`${translate(language, 'rewardClaimed')} · ${translate(language, 'gemReceived')}`);
       if (sentType === 'claimAdventure' || sentType === 'claimForestTrail') setNotice(translate(language, 'rewardClaimed'));
+      if (sentType === 'claimWorldBossReward') setNotice(ko ? '월드보스 참여 보상을 받았어요!' : 'World boss participation reward received!');
+      if (sentType === 'claimWorldBossSharedReward') setNotice(ko ? '함께 달성한 공동 보상을 받았어요!' : 'Community boss reward received!');
       if (sentType === 'useFatiguePotion') setNotice(translate(language, 'fatiguePotionDone'));
       if (sentType === 'claimSquirrel') setNotice(ko ? '다람쥐가 탐험 친구가 되었어요!' : 'The squirrel joined your adventures!');
       if (sentType === 'dispatchSquirrel') setNotice(ko ? '다람쥐가 탐험을 떠났어요. 4시간 뒤 돌아와요.' : 'The squirrel is exploring. It returns in 4 hours.');
@@ -303,11 +311,13 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
   };
   const enqueue = (command: GameCommand): boolean => {
     if (!foreground.current || !token.current || (lock.current && !sessionCache.pending) || (sessionCache.pending && !lock.current)) return false;
+    if (command.type === 'claimWorldBossSharedReward' &&
+      (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type))) return false;
     if (!trolleySupported && ['loadTrolley', 'loadTrolleyBatch', 'collectTrolley'].includes(command.type)) {
       setNotice(ko ? '서버가 아직 트롤리를 지원하지 않아요. 서버 업데이트 전에는 목재를 보관함으로 직접 옮겨 주세요.' : 'The server does not support the trolley yet. Move logs directly to storage until it is updated.');
       return false;
     }
-    if (command.type === 'claimForestTrail' || command.type === 'useFatiguePotion' || command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
+    if (command.type === 'claimWorldBossReward' || command.type === 'claimForestTrail' || command.type === 'useFatiguePotion' || command.type === 'claimFirstRecord' || command.type === 'acknowledgeWallet' || command.type === 'claimGrowthReward' || command.type === 'claimAdventure' || command.type === 'drawGem' || command.type === 'fuse') {
       if (sessionCache.pending?.command.type === command.type || inputQueue.current.hasType(command.type)) return false;
       if (command.type === 'claimAdventure' && command.stage !== sessionCache.state?.progress.adventureClaimed) return false;
       if (command.type === 'claimFirstRecord' && sessionCache.state?.progress.firstRecordClaimed) return false;
@@ -404,7 +414,9 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     {!restoring && !!notice && <Text style={{ color: '#FFD18E', textAlign: 'center' }}>{notice}</Text>}
   </View>;
   return renderMain({ snapshot: state, busy: busy || restoring, queued, pending: sessionCache.pending !== null, trolleySupported,
-    get now() { return Date.now() + serverClockOffset; }, canChop: !!token.current && canQueueServerHit(input), notice,
+    get now() { return Date.now() + serverClockOffset; }, canChop: !!token.current && canQueueServerHit(input), notice, confirmedTutorialMask,
+    retryPending: () => { if (!collecting.current) void action(); },
+    resetTutorialConfirmations: () => setConfirmedTutorialMask(0),
     connect: () => { if (!restoring) void run(false); },
     refresh: () => { if (!lock.current && !inputQueue.current.size && !sessionCache.pending && token.current) {
       lock.current = true; setBusy(true);

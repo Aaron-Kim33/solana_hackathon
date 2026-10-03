@@ -94,6 +94,7 @@ export type Progress = {
   version: 9; language: 'ko' | 'en'; wood: number; trolleyWood: number; trolleyTrip: TrolleyTrip | null; coins: number; harvested: number; xp: number;
   woodGemDraws?: number;
   fatiguePotionsUsed?: number;
+  bossFatiguePotionsEarned?: number;
   forestTrailClaimed?: number;
   farm?: FarmState;
   autoPickupTrial?: { startedAt: number };
@@ -274,7 +275,7 @@ export const highestAxeLevel = (state: Progress) => Math.max(state.axeLevel, ...
 export const pioneerOwned = (state: Progress) => state.adventureClaimed >= 4;
 // One potion is earned by claiming the second-slot quest, immediately before
 // Forest Pioneer. Derivation also grants it to legacy accounts without replaying rewards.
-export const fatiguePotionCount = (state: Progress) => (state.adventureClaimed >= 2 ? 1 : 0) - (state.fatiguePotionsUsed ?? 0);
+export const fatiguePotionCount = (state: Progress) => (state.adventureClaimed >= 2 ? 1 : 0) + (state.bossFatiguePotionsEarned ?? 0) - (state.fatiguePotionsUsed ?? 0);
 export function useFatiguePotion(state: Progress): Progress {
   if (fatiguePotionCount(state) <= 0 || state.fatigue <= 0) return state;
   return { ...state, fatiguePotionsUsed: (state.fatiguePotionsUsed ?? 0) + 1, fatigue: 0, recoveryAt: null };
@@ -478,8 +479,10 @@ export function parseProgress(raw: string): Progress {
     (state.forestTrailClaimed > 0 && (state.adventureClaimed < 3 ||
       state.treeLevel < FOREST_TRAIL[state.forestTrailClaimed - 1].tree)) ||
     (state.forestTrailClaimed > 5 && state.adventureClaimed < 5))) throw new Error('INVALID_SAVE');
+  if (state.bossFatiguePotionsEarned !== undefined && (!Number.isSafeInteger(state.bossFatiguePotionsEarned) || state.bossFatiguePotionsEarned < 0 ||
+    !Number.isSafeInteger(state.bossFatiguePotionsEarned + (state.adventureClaimed >= 2 ? 1 : 0)))) throw new Error('INVALID_SAVE');
   if (state.fatiguePotionsUsed !== undefined && (!Number.isSafeInteger(state.fatiguePotionsUsed) ||
-    state.fatiguePotionsUsed < 0 || state.fatiguePotionsUsed > (state.adventureClaimed >= 2 ? 1 : 0))) throw new Error('INVALID_SAVE');
+    state.fatiguePotionsUsed < 0 || fatiguePotionCount(state) < 0)) throw new Error('INVALID_SAVE');
   const rewards = state.wardenRewardsClaimed;
   if (rewards !== undefined && (!Number.isInteger(rewards) || rewards < 0 || rewards > 3 ||
     (rewards > 0 && (!wardenOwned(state) || axeLevelFor(state, 'warden') < WARDEN_TARGETS[rewards - 1])))) throw new Error('INVALID_SAVE');

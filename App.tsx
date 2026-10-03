@@ -29,9 +29,12 @@ import { CommunityWorld } from './src/game/CommunityWorld';
 import { SquirrelExpedition } from './src/game/SquirrelExpedition';
 import { forestShortcutUnlocks } from './src/game/shortcut-unlocks';
 import { ForestMap } from './src/game/ForestMap';
+import { ForestNews } from './src/game/ForestNews';
+import { forestNews } from './src/game/forest-news';
 import { WorldBossWorld } from './src/game/WorldBossWorld';
 import { PlayGuide } from './src/game/PlayGuide';
 import { TutorialNudge } from './src/game/TutorialNudge';
+import { ServerActionNotice } from './src/game/ServerActionNotice';
 import { nextTutorial, tutorialBit, type TutorialStep } from './src/game/tutorial';
 import { loadTutorialSeen, saveTutorialSeen, type TutorialScope } from './src/game/tutorial-storage';
 import { devQuestPreview } from './src/game/dev-quest-preview';
@@ -136,7 +139,13 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     setTutorialSeenMask(next);
     setTutorialCoolUntil(Date.now() + 1400);
   }, [tutorialScope]);
+  useEffect(() => {
+    if (!online) return;
+    for (const step of ['storage', 'sweep', 'trolley'] as const)
+      if ((server!.confirmedTutorialMask & tutorialBit(step)) !== 0) completeTutorial(step);
+  }, [online, server?.confirmedTutorialMask, completeTutorial]);
   const replayTutorial = () => {
+    server?.resetTutorialConfirmations();
     tutorialSeenRef.current = 0;
     try { saveTutorialSeen(tutorialScope, 0); } catch { /* The current session can still replay. */ }
     setTutorialSeenMask(0);
@@ -146,7 +155,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
   const progressRef = useRef(progress);
   progressRef.current = progress;
   const serverRef = useRef(server); serverRef.current = server;
-  const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '서버 연결' : 'Server connection', uiLanguage === 'ko' ? '이 기능은 아직 서버 연결 중이에요. 로컬 재화로 대신 처리하지 않아요.' : 'This feature is not connected to the server yet. No local balances will be changed.');
+  const unavailable = () => Alert.alert(uiLanguage === 'ko' ? '지금은 사용할 수 없어요' : 'Currently unavailable', uiLanguage === 'ko' ? '현재 연결에서는 이 기능을 사용할 수 없어요. 재화는 사용되지 않았어요.' : 'This feature is unavailable on this connection. No resources were spent.');
   const [saveError, setSaveError] = useState(loaded.error);
   const [panel, setPanel] = useState<'menu' | 'guide' | 'quests' | 'map' | 'farm' | 'community' | 'worldBoss' | 'character' | 'axe' | 'gems' | 'pet' | 'tree' | null>(null);
   const previousPanel = useRef(panel);
@@ -230,6 +239,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       ? (language === 'ko' ? '메뉴에서 미확인 요청을 재확인해 주세요.' : 'Retry the pending request in the menu.')
       : null)
     : message.key === 'intro' ? null : t(message.key, message.value);
+  const [bossRewardsOnEntry, setBossRewardsOnEntry] = useState(false);
+  const readyForestNews = forestNews({ now: online ? server!.now : now, pet: squirrel,
+    farm: progress.farm, boss: online ? server!.snapshot?.worldBoss : undefined,
+    petUnlocked: shortcutUnlocks.pet, mapUnlocked: shortcutUnlocks.map,
+    farmUnlocked: progress.treeLevel >= FARM_UNLOCK_LEVEL });
   const [recording, setRecording] = useState(false);
   const [recordNotice, setRecordNotice] = useState<GameMessage | null>(null);
   const signature = progress.receipt?.signature;
@@ -530,7 +544,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
       const dropIds = targets.map(log => log.serverId).filter((id): id is string => !!id);
       if (dropIds.length === targets.length) {
         setUiNotice(null);
-        if (serverRef.current.command({ type: 'loadTrolleyBatch', dropIds })) completeTutorial('sweep');
+        serverRef.current.command({ type: 'loadTrolleyBatch', dropIds });
       }
       return;
     }
@@ -546,7 +560,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     const target = activeLogs.current.get(id);
     if (!target || target.expiresAt <= Date.now()) return;
     if (serverRef.current?.snapshot) {
-      if (target.serverId && serverRef.current.command({ type: 'collectDrop', dropId: target.serverId })) completeTutorial('storage');
+      if (target.serverId) serverRef.current.command({ type: 'collectDrop', dropId: target.serverId });
       return;
     }
     const before = progressRef.current.harvested;
@@ -590,7 +604,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
     if (draggingLogs.current.size > 0 || progressRef.current.trolleyWood <= 0 || progressRef.current.trolleyTrip) return;
     stopHoldingTree();
     if (serverRef.current?.snapshot) {
-      if (serverRef.current.command({ type: 'collectTrolley' })) completeTutorial('trolley');
+      serverRef.current.command({ type: 'collectTrolley' });
       return;
     }
     const next = dispatchTrolley(progressRef.current, Date.now());
@@ -884,6 +898,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             onSweepStart={beginSweep} onSweepMove={extendSweep} onSweepEnd={finishSweep} onSweepCancel={cancelSweep} onDraggingChange={syncDragMode} />
         ))}
         {!!gameplayNotice && <Text pointerEvents="none" accessibilityLiveRegion="polite" style={styles.gameplayToast}>{gameplayNotice}</Text>}
+        {readyForestNews && panel === null && !tutorialStep && !gameplayNotice && !isHolding && mode !== 'collect' &&
+          <ForestNews kind={readyForestNews} language={language} onPress={() => {
+            if (readyForestNews === 'boss') {
+              setBossRewardsOnEntry(true); setPanel('worldBoss'); server?.refresh();
+            } else setPanel(readyForestNews === 'pet' ? 'pet' : 'farm');
+          }} />}
         {tutorialStep && tutorialStep !== 'potion' && <TutorialNudge step={tutorialStep} language={language} onDismiss={() => completeTutorial(tutorialStep)} />}
       </View>
 
@@ -921,8 +941,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               <Pressable accessibilityRole="button" onPress={() => setPanel(null)} style={styles.languageButton}><Text style={styles.walletText}>{t('close')}</Text></Pressable>
             </View>
             <ScrollView key={panel} ref={panelScroll} contentContainerStyle={styles.panelContent}>
-      {online && !!server!.notice && (panel === 'quests' || panel === 'gems' || panel === 'character' || panel === 'axe' || (panel === 'pet' && /다람쥐|squirrel/i.test(server!.notice))) &&
-        <Text accessibilityLiveRegion="polite" style={styles.progressLabel}>{server!.notice}</Text>}
+      {online && panel !== 'menu' && <ServerActionNotice notice={server!.notice} pending={server!.pending}
+        busy={server!.busy} language={language} onRetry={server!.retryPending} />}
       {panel === 'menu' && <View style={styles.achievement}>
         <AudioSettingsControls language={language} />
         {server?.controls}
@@ -1085,7 +1105,7 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
           style={[styles.languageButton, (treeHp !== 0 || progress.treeLevel >= TREE_MAX || wood < treeCost(progress.treeLevel)) && styles.disabledButton]}>
           <Text style={styles.walletText}>{t(progress.treeLevel >= TREE_MAX ? 'maxLevel' : 'upgradeCost', treeCost(progress.treeLevel))}</Text>
         </Pressable>
-        {wood < treeCost(progress.treeLevel) && progress.treeLevel < TREE_MAX && <Text style={styles.progressLabel}>{t('insufficientWood')}</Text>}
+        {wood < treeCost(progress.treeLevel) && progress.treeLevel < TREE_MAX && <Text style={styles.progressLabel}>{t('treeRegrowHint')}</Text>}
         <Pressable onPress={() => { if (online) { if (server!.command({ type: 'regrow' })) setPanel(null); return; } if (commit(regrow(progressRef.current))) setPanel(null); }} style={styles.languageButton}>
           <Text style={styles.walletText}>{t('continueSameTree')}</Text>
         </Pressable>
@@ -1107,10 +1127,12 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             <Text style={styles.mapTitle}>{panel === 'farm' ? language === 'ko' ? '묘목 농장' : 'Sapling farm' : panel === 'community' ? language === 'ko' ? '공동 숲' : 'Community forest' : panel === 'worldBoss' ? language === 'ko' ? '월드보스 숲' : 'World boss forest' : language === 'ko' ? '숲 지도' : 'Forest map'}</Text>
             <View style={{ width: 64 }} />
           </View>
+          {online && <ServerActionNotice notice={server!.notice} pending={server!.pending}
+            busy={server!.busy} language={language} onRetry={server!.retryPending} />}
           {panel === 'map' ? <ScrollView contentContainerStyle={styles.mapContent}>
             <ForestMap language={language} farmReady={progress.treeLevel >= FARM_UNLOCK_LEVEL} communityReady={online && !!server!.snapshot?.community} bossReady={online && !!server!.snapshot?.worldBoss}
               onPersonal={() => setPanel(null)} onFarm={() => setPanel('farm')} onCommunity={() => { setPanel('community'); server!.refresh(); }}
-              onWorldBoss={() => { setPanel('worldBoss'); server!.refresh(); }} />
+              onWorldBoss={() => { setBossRewardsOnEntry(false); setPanel('worldBoss'); server!.refresh(); }} />
           </ScrollView> : panel === 'farm' ? <FarmWorld progress={progress} now={online ? server!.now : now}
             locked={online && (server!.busy || server!.pending || server!.queued > 0)}
             onSeed={plot => {
@@ -1134,7 +1156,8 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
             command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />
             : panel === 'worldBoss' && online && server!.snapshot?.worldBoss ? <WorldBossWorld state={server!.snapshot.worldBoss}
               progress={progress} language={language} command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0}
-              lastDamage={server!.snapshot.lastBossDamage} /> : null}
+              lastDamage={server!.snapshot.lastBossDamage} onRefresh={server!.refresh} initialRewardsOpen={bossRewardsOnEntry}
+              actionNotice={{ notice: server!.notice, pending: server!.pending, busy: server!.busy, language, onRetry: server!.retryPending }} /> : null}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>

@@ -3,7 +3,6 @@ import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SoundPressable as Pressable } from '../audio/GameAudio';
 import { BuffPanel } from './BuffPanel';
 import { ForesterSprite } from './ForesterSprite';
-import { GemPackages } from './DeepwoodContent';
 import { GemArt, GEM_COLORS } from './GemArt';
 import { createFusionAction } from './fusion-action';
 import { GEM_FUSION_COST, GEM_FUSION_CHANCE } from './progression';
@@ -111,7 +110,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       <View style={s.row}>{stat(t('critChance'), `${formatNumber(stats.critChance)}%`)}{stat(t('critDamage'), `${formatNumber(stats.critDamage)}%`)}</View>
       <BuffPanel progress={progress} />
       <Pressable accessibilityRole="button" onPress={() => go('skills')} style={s.back}><Text style={s.text}>{t('passiveSkills')} ›</Text></Pressable>
-      {button(t('talents'), () => go('talents'))}
+      {!serverCommand && button(t('talents'), () => go('talents'))}
       {button(`${t('gems')} · ${Object.values(progress.gems).reduce((sum, count) => sum + count, 0)}`, () => go('gems'))}
     </>}
 
@@ -217,7 +216,6 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
     </>}
 
     {page === 'gems' && <>
-      <GemPackages progress={progress} />
       <Text style={s.title}>{t('gemInventory')}</Text>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {GEM_TIERS.map(tier => <Pressable key={tier} accessibilityRole="button" accessibilityLabel={`${t(tier)} · ${progress.gems[tier]}`}
@@ -294,7 +292,7 @@ export function CharacterPanel({ progress, commit, onSkin, onUpgrade, onNavigate
       })}
     </>}
 
-    {page === 'talents' && <>
+    {page === 'talents' && !serverCommand && <>
       <Text style={s.text}>{t(serverCommand ? 'serverTalentsComingSoon' : 'talentsHint')}</Text>
       <Text style={s.bonus}>{t('ownedWood', progress.wood)}</Text>
       {TALENT_IDS.map(id => {

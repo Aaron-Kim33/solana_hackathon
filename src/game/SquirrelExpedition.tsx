@@ -18,7 +18,7 @@ export function SquirrelExpedition({ pet, community, now, treeLevel, language, c
   return <View style={s.content}>
     <View style={s.intro}><Image source={require('../../assets/pets/squirrel-v1.png')} style={s.portrait} resizeMode="contain" />
       <View style={s.description}><Text style={s.title}>{pet?.owned ? ko ? '탐험 친구 · 다람쥐' : 'Your squirrel companion' : ko ? '첫 공동 퀘스트 보상' : 'First community quest reward'}</Text>
-        <Text style={s.body}>{!pet || !community ? ko ? '서버 저장에 연결하고 최신 서버를 확인해 주세요.' : 'Connect to server save and use the latest server.'
+        <Text style={s.body}>{!pet || !community ? ko ? '탐험 정보를 불러오지 못했어요. 서버 저장에 다시 연결해 주세요.' : 'Expedition data is unavailable. Reconnect to server save.'
           : pet.owned ? ko ? '한 번에 한 곳만 탐험해요. 돌아오면 직접 수령해 주세요.' : 'One route at a time. Collect when it returns.'
             : ko ? '공동 자재 퀘스트를 하나 수령하면 영구 해금해요.' : 'Claim one material quest to unlock it permanently.'}</Text></View></View>
     {pet && community && (!pet.owned ? <Pressable accessibilityRole="button" disabled={!pet.questReady || locked}
@@ -32,6 +32,7 @@ export function SquirrelExpedition({ pet, community, now, treeLevel, language, c
           <View style={s.routes}>{community.facilities.map(item => <Pressable key={item.id} accessibilityRole="button" disabled={locked}
             onPress={() => command({ type: 'dispatchSquirrel', destination: item.id })} style={[s.route, locked && s.disabled]}>
             <Text style={s.routeName}>{item.id === 'mine' ? '⛏' : '🌱'} {name(item.id)}</Text>
+            <Text style={s.body}>Lv.{item.level} · {ko ? '시설 보너스' : 'Facility bonus'} +{(item.level - 1) * 10}%</Text>
             <Text style={s.routeAmount}>+{squirrelReward(item.id, treeLevel, item.level).toLocaleString()} {item.id === 'mine' ? ko ? '코인' : 'coins' : ko ? '목재' : 'wood'}</Text></Pressable>)}</View></>)}
   </View>;
 }

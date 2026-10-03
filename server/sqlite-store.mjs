@@ -4,7 +4,8 @@ import { starterProgress, parseProgress, hit, rollCombatDamage, recoveryOwned, c
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, claimForestTrail, drawWoodGem, fuseGems, growthMilestoneReady, useFatiguePotion } from '../src/game/progression.ts';
 import { COMMUNITY_QUESTS, COMMUNITY_FACILITIES, COMMUNITY_LEVEL_STEPS, COMMUNITY_CONTRIBUTOR_STEPS, COMMUNITY_MIN_CONTRIBUTION, communityFacilityLevel, communityDayStart, communityWeekStart } from '../src/shared/community.ts';
-import { WORLD_BOSS_WEEKLY_HITS, worldBossWeekStart } from '../src/shared/world-boss.ts';
+import { WORLD_BOSS_WEEKLY_HITS, WORLD_BOSS_REWARD_HITS, worldBossReward, worldBossWeekStart,
+  WORLD_BOSS_SHARED_MIN_HITS, WORLD_BOSS_SHARED_MIN_BASE, nextWorldBossSharedBase, worldBossSharedReward } from '../src/shared/world-boss.ts';
 import { SQUIRREL_EXPEDITION_MS, squirrelReward } from '../src/shared/pets.ts';
 import { plantFarmSeed, activateBlessing, startFarmPuzzle, finishFarmPuzzle, claimFarmTree } from '../src/game/farm.ts';
 import { WOOD_DROP_ACCEPT_MS } from '../src/shared/drop-lifetime.ts';
@@ -17,7 +18,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     const version = db.prepare('PRAGMA user_version').get().user_version;
-    if (version > 7) throw new Error('DATABASE_VERSION_UNSUPPORTED');
+    if (version > 9) throw new Error('DATABASE_VERSION_UNSUPPORTED');
     db.exec(`
       BEGIN IMMEDIATE;
       CREATE TABLE IF NOT EXISTS players (
@@ -85,9 +86,30 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         reward INTEGER NOT NULL DEFAULT 0 CHECK(reward >= 0),
         trips INTEGER NOT NULL DEFAULT 0 CHECK(trips >= 0)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS world_boss_reward_weeks (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL,
+        tree_level INTEGER NOT NULL CHECK(tree_level >= 1), PRIMARY KEY(player_id, week_start)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS world_boss_reward_claims (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL,
+        stage INTEGER NOT NULL CHECK(stage BETWEEN 0 AND 2), claimed_at INTEGER NOT NULL,
+        PRIMARY KEY(player_id, week_start, stage)
+      ) STRICT;
+      INSERT OR IGNORE INTO world_boss_reward_weeks
+        SELECT h.player_id,h.week_start,CAST(json_extract(p.progress,'$.treeLevel') AS INTEGER)
+        FROM world_boss_hits h JOIN players p ON p.id=h.player_id;
+      CREATE TABLE IF NOT EXISTS world_boss_shared_weeks (
+        week_start INTEGER PRIMARY KEY, base_target INTEGER NOT NULL CHECK(base_target >= 10000)
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS world_boss_shared_claims (
+        player_id TEXT NOT NULL REFERENCES players(id), week_start INTEGER NOT NULL REFERENCES world_boss_shared_weeks(week_start),
+        stage INTEGER NOT NULL CHECK(stage BETWEEN 0 AND 2), claimed_at INTEGER NOT NULL,
+        PRIMARY KEY(player_id, week_start, stage)
+      ) STRICT;
+      INSERT OR IGNORE INTO world_boss_shared_weeks SELECT DISTINCT week_start,10000 FROM world_boss_hits;
       ${mode === 'local' ? 'CREATE TABLE IF NOT EXISTS local_test_admins (player_id TEXT PRIMARY KEY REFERENCES players(id)) STRICT;' : ''}
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
-      PRAGMA user_version = 7;
+      PRAGMA user_version = 9;
       COMMIT;
     `);
   } catch (error) { db.close(); throw error; }
@@ -118,12 +140,37 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       progress: (quest.period === 'daily' ? today : week)[quest.metric], target: quest.target, materials: quest.materials,
       claimed: claims.has(`${quest.period === 'daily' ? dayStart : weekStart}:${quest.id}`) })) };
   };
+  const sharedBase = weekStart => {
+    const fixed = db.prepare('SELECT base_target FROM world_boss_shared_weeks WHERE week_start=?').get(weekStart);
+    if (fixed) return fixed.base_target;
+    const previous = db.prepare('SELECT base_target FROM world_boss_shared_weeks WHERE week_start<? ORDER BY week_start DESC LIMIT 1').get(weekStart);
+    if (!previous) return WORLD_BOSS_SHARED_MIN_BASE;
+    const damage = db.prepare('SELECT COALESCE(SUM(damage),0) AS damage FROM world_boss_hits WHERE week_start=?').get(weekStart - 7 * 86400000).damage;
+    return nextWorldBossSharedBase(damage, previous.base_target);
+  };
   const worldBossSnapshot = (accountId, time) => {
     const weekStart = worldBossWeekStart(time);
     const mine = db.prepare('SELECT hits,damage FROM world_boss_hits WHERE player_id=? AND week_start=?').get(accountId, weekStart) ?? { hits: 0, damage: 0 };
     const global = db.prepare('SELECT COALESCE(SUM(hits),0) AS totalHits,COALESCE(SUM(damage),0) AS totalDamage,COUNT(*) AS participants FROM world_boss_hits WHERE week_start=?').get(weekStart);
+    const weeks = db.prepare('SELECT w.week_start,w.tree_level,h.hits FROM world_boss_reward_weeks w JOIN world_boss_hits h ON h.player_id=w.player_id AND h.week_start=w.week_start WHERE w.player_id=? AND w.week_start<=? ORDER BY w.week_start DESC').all(accountId, weekStart);
+    const claims = new Set(db.prepare('SELECT week_start,stage FROM world_boss_reward_claims WHERE player_id=?').all(accountId).map(row => `${row.week_start}:${row.stage}`));
+    const current = weeks.find(row => row.week_start === weekStart);
+    const rewards = [{ week_start: weekStart, tree_level: current?.tree_level ?? 0, hits: mine.hits }, ...weeks.filter(row => row.week_start < weekStart)]
+      .flatMap(row => WORLD_BOSS_REWARD_HITS.map((target, stage) => ({ weekStart: row.week_start, stage, target, treeLevel: row.tree_level,
+        ready: row.hits >= target, claimed: claims.has(`${row.week_start}:${stage}`), ...worldBossReward(stage, row.tree_level) })))
+      .filter(reward => reward.weekStart === weekStart || (reward.ready && !reward.claimed));
+    const sharedClaims = new Set(db.prepare('SELECT week_start,stage FROM world_boss_shared_claims WHERE player_id=?').all(accountId).map(row => `${row.week_start}:${row.stage}`));
+    const sharedRewards = [{ week_start: weekStart, hits: mine.hits }, ...weeks.filter(row => row.week_start < weekStart && row.hits >= WORLD_BOSS_SHARED_MIN_HITS)]
+      .flatMap(row => {
+        const base = sharedBase(row.week_start);
+        const totalDamage = Math.round((row.week_start === weekStart ? global.totalDamage : db.prepare('SELECT COALESCE(SUM(damage),0) AS damage FROM world_boss_hits WHERE week_start=?').get(row.week_start).damage) * 100) / 100;
+        return [0, 1, 2].map(stage => ({ weekStart: row.week_start, stage, target: base * (stage + 1), totalDamage: Math.round(totalDamage * 100) / 100,
+          myHits: row.hits, ready: row.hits >= WORLD_BOSS_SHARED_MIN_HITS && totalDamage >= base * (stage + 1),
+          claimed: sharedClaims.has(`${row.week_start}:${stage}`), ...worldBossSharedReward(stage) }));
+      }).filter(reward => reward.weekStart === weekStart || (reward.ready && !reward.claimed));
     return { weekStart, hits: mine.hits, damage: Math.round(mine.damage * 100) / 100, totalHits: global.totalHits,
-      totalDamage: Math.round(global.totalDamage * 100) / 100, participants: global.participants };
+      totalDamage: Math.round(global.totalDamage * 100) / 100, participants: global.participants,
+      rewardTreeLevel: current?.tree_level ?? null, rewards, sharedRewards };
   };
   const squirrelSnapshot = accountId => {
     const pet = db.prepare('SELECT destination,departed_at,returns_at,reward,trips FROM squirrel_pets WHERE player_id=?').get(accountId);
@@ -171,7 +218,7 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       id(accountId);
       const r = parseRequest(input);
       // Keep the original fingerprint for already-persisted command receipts.
-const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'plantFarmSeed' || r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' || r.command.type === 'claimForestTrail' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
+const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.command.type === 'claimWorldBossReward' || r.command.type === 'claimWorldBossSharedReward' ? [r.command.weekStart, r.command.stage] : r.command.type === 'contributeCommunity' ? [r.command.facility, r.command.amount] : r.command.type === 'dispatchSquirrel' ? r.command.destination : r.command.type === 'claimCommunityQuest' ? r.command.questId : r.command.type === 'plantFarmSeed' || r.command.type === 'startFarmPuzzle' || r.command.type === 'claimFarmTree' ? r.command.plot : r.command.type === 'finishFarmPuzzle' ? r.command.rotations : r.command.type === 'claimAdventure' || r.command.type === 'claimForestTrail' ? r.command.stage : r.command.type === 'equipAxe' ? r.command.skin : r.command.type === 'fuse' || r.command.type === 'openGem' ? r.command.tier : r.command.type === 'equipOption' ? [r.command.slot, r.command.item] : r.command.type === 'collectDrop' || r.command.type === 'loadTrolley' ? r.command.dropId : r.command.type === 'loadTrolleyBatch' ? r.command.dropIds : r.command.type === 'hitBatch' ? r.command.count : null]);
       db.exec('BEGIN IMMEDIATE');
       try {
         const prior = db.prepare('SELECT * FROM commands WHERE player_id = ? AND request_id = ?').get(accountId, r.requestId);
@@ -185,7 +232,28 @@ const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.comman
         const testAdmin = isLocalTestAdmin(accountId);
         const time = now(), c = r.command;
         let after;
-        if (c.type === 'claimSquirrel') {
+        if (c.type === 'claimWorldBossSharedReward') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          const reward = before.worldBoss.sharedRewards.find(item => item.weekStart === c.weekStart && item.stage === c.stage);
+          if (!reward || !reward.ready || reward.claimed) throw new Error('ACTION_UNAVAILABLE');
+          const low = before.progress.gems.low + reward.lowGems, medium = before.progress.gems.medium + reward.mediumGems;
+          if (![low, medium].every(Number.isSafeInteger)) throw new Error('RESOURCE_OVERFLOW');
+          db.prepare('INSERT INTO world_boss_shared_claims VALUES (?,?,?,?)').run(accountId, c.weekStart, c.stage, time);
+          after = { ...before, revision: before.revision + 1, progress: { ...before.progress, gems: { ...before.progress.gems, low, medium } } };
+        } else if (c.type === 'claimWorldBossReward') {
+          if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
+          if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
+          const reward = before.worldBoss.rewards.find(item => item.weekStart === c.weekStart && item.stage === c.stage);
+          if (!reward || !reward.ready || reward.claimed) throw new Error('ACTION_UNAVAILABLE');
+          const coins = before.progress.coins + reward.coins;
+          const low = before.progress.gems.low + reward.lowGems;
+          const earned = (before.progress.bossFatiguePotionsEarned ?? 0) + reward.potions;
+          if (![coins, low, earned].every(Number.isSafeInteger)) throw new Error('RESOURCE_OVERFLOW');
+          db.prepare('INSERT INTO world_boss_reward_claims VALUES (?,?,?,?)').run(accountId, c.weekStart, c.stage, time);
+          after = { ...before, revision: before.revision + 1, progress: { ...before.progress, coins,
+            gems: { ...before.progress.gems, low }, ...(reward.potions ? { bossFatiguePotionsEarned: earned } : {}) } };
+        } else if (c.type === 'claimSquirrel') {
           if (before.revision !== r.expectedRevision) throw new Error('REVISION_CONFLICT');
           if (!Number.isSafeInteger(before.revision + 1)) throw new Error('REVISION_OVERFLOW');
           if (!before.squirrel.questReady || before.squirrel.owned) throw new Error('ACTION_UNAVAILABLE');
@@ -228,6 +296,8 @@ const fingerprint = JSON.stringify([r.expectedRevision, r.command.type, r.comman
           const next = { ...current, fatigue: testAdmin ? 0 : Math.min(100, current.fatigue + (fatigueSaved ? 0 : 1)),
             recoveryAt: testAdmin ? null : fatigueSaved ? current.recoveryAt : current.recoveryAt ?? time };
           const weekStart = worldBossWeekStart(time);
+          db.prepare('INSERT OR IGNORE INTO world_boss_shared_weeks VALUES (?,?)').run(weekStart, sharedBase(weekStart));
+          db.prepare('INSERT OR IGNORE INTO world_boss_reward_weeks VALUES (?,?,?)').run(accountId, weekStart, current.treeLevel);
           db.prepare('INSERT INTO world_boss_hits VALUES (?,?,1,?) ON CONFLICT(player_id,week_start) DO UPDATE SET hits=hits+1,damage=ROUND(damage+excluded.damage,2)')
             .run(accountId, weekStart, damage);
           after = { ...before, progress: next, revision: before.revision + 1, serverTime: time,

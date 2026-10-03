@@ -10,6 +10,8 @@ export type GameCommand = { type: 'fuse'; tier: GemTier } | { type: 'drawGem' } 
   | { type: 'startFarmPuzzle'; plot: 0 | 1 } | { type: 'finishFarmPuzzle'; rotations: number[] } | { type: 'claimFarmTree'; plot: 0 | 1 }
   | { type: 'claimSquirrel' } | { type: 'dispatchSquirrel'; destination: CommunityFacilityId } | { type: 'collectSquirrel' }
   | { type: 'hitWorldBoss' }
+  | { type: 'claimWorldBossReward'; weekStart: number; stage: number }
+  | { type: 'claimWorldBossSharedReward'; weekStart: number; stage: number }
   | { type: 'claimCommunityQuest'; questId: CommunityQuestId }
   | { type: 'contributeCommunity'; facility: CommunityFacilityId; amount: number }
   | { type: 'claimGrowthReward' } | { type: 'openGem'; tier: GemTier } | { type: 'equipOption'; slot: 0 | 1; item: OptionId }

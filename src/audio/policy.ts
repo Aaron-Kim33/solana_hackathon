@@ -52,6 +52,7 @@ export function progressCues(before: Progress, after: Progress): SoundCue[] {
 }
 export function serverCues(before: PlayerSnapshot, after: PlayerSnapshot, command: GameCommand): SoundCue[] {
   if (after.revision <= before.revision) return [];
+  if (command.type === 'claimWorldBossReward' || command.type === 'claimWorldBossSharedReward') return ['reward'];
   if (command.type === 'dispatchSquirrel' && after.squirrel?.trip && after.squirrel.trip.departedAt !== before.squirrel?.trip?.departedAt) return ['pet'];
   if (command.type === 'collectSquirrel' && before.squirrel?.trip && !after.squirrel?.trip)
     return [before.squirrel.trip.destination === 'mine' ? 'coins' : 'collect'];

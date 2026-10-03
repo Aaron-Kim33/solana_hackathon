@@ -6,6 +6,14 @@ import { CUES, parseAudioSettings, progressCues, serverCues } from './policy.ts'
 import { initialProgress, xpFloor } from '../game/progression.ts';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
+test('boss participation reward cue plays only on a confirmed revision change', () => {
+  const before = { revision: 0, progress: initialProgress('ko'), provenance: 'server' };
+  for (const type of ['claimWorldBossReward', 'claimWorldBossSharedReward']) {
+    const command = { type, stage: 2, weekStart: 0 };
+    assert.deepEqual(serverCues(before, before, command), []);
+    assert.deepEqual(serverCues(before, { ...before, revision: 1 }, command), ['reward']);
+  }
+});
 function fixture(defer = false) {
   let now = 0;
   const ports = [], seeks = [];
