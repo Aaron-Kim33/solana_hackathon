@@ -10,6 +10,12 @@ Normal chopping and collection do **not** create Solana transactions. Wallet log
 
 ## API surface
 
+October 5 source adds authenticated read-only `GET /leaderboards/community` and
+`GET /leaderboards/world-boss`. They aggregate this week's existing verified records,
+return up to 10 entries plus the caller's rank, exclude local-test/unlinked accounts,
+and expose stable pseudonyms rather than wallet/account IDs. No ranked prizes are
+issued. These routes are pending deployment; older hosted builds return 404.
+
 - `GET /health`: preview mode, wallet identity origin and supported client capabilities.
 - `POST /auth/challenge`, `POST /auth/login`, `POST /auth/logout`: short-lived sign-message challenge, signature verification and session lifecycle.
 - `GET /me`, `POST /commands`: authenticated snapshot and game commands, including attacks, ground-drop collection, trolley loading/dispatch/recovery, progression, quests and gems.

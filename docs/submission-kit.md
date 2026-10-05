@@ -1,5 +1,12 @@
 # CLOCK IN submission kit (draft — verify against the final APK)
 
+October 5 follow-up: the latest preparation checklist is `submission-final-checklist-2026-10-05.md`.
+Use `demo-script-2026-10-05.md` for the current shot list, including weekly forest/boss rankings.
+The user supplied the accepted deck formats: submit a Google Drive PDF under 20 MB and
+40 pages, no password, Anyone with the link can view, downloading allowed. PPTX is an
+editable working copy and needs conversion. October 5 rankings/security still need release
+and final phone QA. Do not describe the October 3 APK as already containing them.
+
 This is preparation, not a claim that the current source has passed real-device QA. Do not submit a video of Metro, a debug-signed local build, or simulated wallet success as the final demo.
 
 ## One-sentence pitch

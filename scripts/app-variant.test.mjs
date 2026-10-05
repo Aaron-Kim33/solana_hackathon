@@ -5,6 +5,13 @@ import { readFileSync } from 'node:fs';
 
 const profiles = JSON.parse(readFileSync(new URL('../eas.json', import.meta.url), 'utf8')).build;
 
+test('unneeded overlay, shared storage, microphone and camera permissions are blocked', () => {
+  const blocked = config().android.blockedPermissions;
+  for (const permission of ['SYSTEM_ALERT_WINDOW', 'READ_EXTERNAL_STORAGE', 'WRITE_EXTERNAL_STORAGE', 'RECORD_AUDIO', 'CAMERA']) {
+    assert.ok(blocked.includes(`android.permission.${permission}`));
+  }
+});
+
 test('preview installs beside the existing app while store keeps the original package', () => {
   const previous = process.env.APP_VARIANT;
   try {

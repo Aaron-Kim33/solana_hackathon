@@ -17,6 +17,10 @@ async function body(req, keys) {
 export function createApi({ path, origin, mode = 'local', readRecordTransaction = fetchRecordTransaction }) {
   const store = openGameStore(path, { mode }), auth = openAuthService(path, { origin }), game = authenticatedGame(auth, store);
   const anonymousLimit = createRateLimit(), playerLimit = createRateLimit();
+  // Socket identity is deliberately used instead of trusting spoofable forwarded headers.
+  // Behind a shared proxy this is a conservative shared cap, not a per-human/IP guarantee.
+  const authAddressLimit = createRateLimit({ limit: 30 });
+  const authGlobalLimit = createRateLimit({ limit: 120 });
   const recordLimit = createRateLimit({ limit: 12 });
   const recordChecks = new Set();
   const server = createServer({ requestTimeout: 10000, headersTimeout: 10000, maxHeaderSize: 8192 }, async (req, res) => {
@@ -32,6 +36,10 @@ export function createApi({ path, origin, mode = 'local', readRecordTransaction 
       else anonymousLimit(req.socket.remoteAddress ?? 'unknown');
       if (req.headers.origin && req.headers.origin !== origin) return send(403, { error: 'ORIGIN_DENIED' });
       const route = `${req.method} ${req.url}`;
+      if (route === 'POST /auth/challenge' || route === 'POST /auth/login') {
+        authAddressLimit(req.socket.remoteAddress ?? 'unknown');
+        authGlobalLimit('auth');
+      }
       const mainnet = req.url === '/milestone' || req.url?.startsWith('/milestone/');
       const recordRoute = mainnet ? route.replace('/milestone', '/record') : route;
       if (route === 'GET /health') return send(200, mode === 'preview'
@@ -40,6 +48,10 @@ export function createApi({ path, origin, mode = 'local', readRecordTransaction 
       if (route === 'POST /auth/challenge') { const b = await body(req, ['wallet']); return send(200, auth.challenge(b.wallet)); }
       if (route === 'POST /auth/login') { const b = await body(req, ['challengeId', 'signature']); return send(200, auth.login(b.challengeId, b.signature)); }
       if (route === 'GET /me') return send(200, game.load(token));
+      if (route === 'GET /leaderboards/community' || route === 'GET /leaderboards/world-boss') {
+        const accountId = auth.authenticate(token);
+        return send(200, store.leaderboard(accountId, req.url.slice('/leaderboards/'.length)));
+      }
       if (recordRoute === 'GET /record') {
         auth.authenticate(token);
         return send(200, store.recordStatus(playerId, mainnet));

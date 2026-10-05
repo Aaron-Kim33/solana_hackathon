@@ -3,6 +3,8 @@ import { Animated, Image, ScrollView, StyleSheet, Text, View } from 'react-nativ
 import { SoundPressable as Pressable } from '../audio/GameAudio';
 import type { CommunityFacilityId, CommunityQuestId, CommunitySnapshot } from '../shared/community';
 import { COMMUNITY_MIN_CONTRIBUTION } from '../shared/community';
+import { WeeklyRankingButton } from './WeeklyRankingButton';
+import type { LoadWeeklyRanking } from '../shared/weekly-ranking';
 import type { GameCommand } from '../shared/server-contract';
 import type { SquirrelSnapshot } from '../shared/pets';
 import { SquirrelExpedition } from './SquirrelExpedition';
@@ -16,9 +18,9 @@ const LABELS: Record<CommunityQuestId, { ko: string; en: string }> = {
   w_bundles: { ko: '목재 묶음 25개 확보', en: 'Secure 25 bundles' }, w_trolley: { ko: '트롤리 8회 출발', en: 'Dispatch trolley 8 times' },
 };
 
-export function CommunityWorld({ state, pet, now, language, command, locked, treeLevel }: { state: CommunitySnapshot;
+export function CommunityWorld({ state, pet, now, language, command, locked, treeLevel, loadRanking }: { state: CommunitySnapshot;
   pet?: SquirrelSnapshot; now: number; treeLevel: number; language: 'ko' | 'en';
-  command: (command: GameCommand) => boolean; locked: boolean }) {
+  command: (command: GameCommand) => boolean; locked: boolean; loadRanking: LoadWeeklyRanking }) {
   const ko = language === 'ko';
   const petVisible = !!pet && (!pet.owned || !pet.trip || now >= pet.trip.returnsAt);
   const nextAction = communityNextAction(state, pet, now);
@@ -68,8 +70,9 @@ export function CommunityWorld({ state, pet, now, language, command, locked, tre
   return <View style={s.world}>
     <Image source={require('../../assets/community/community-clearing-v1.png')} style={s.background} resizeMode="stretch" />
     <View pointerEvents="none" style={s.topShade} />
-    <View style={s.status}><Text style={s.statusText}>✦ {ko ? '내 자재' : 'My materials'} {state.materials}</Text>
-      <Text style={s.small}>{ko ? '이번 주 내 기여' : 'My contribution this week'} {state.myContribution}</Text>
+    <View style={s.status}><View style={s.statusRow}><View style={{ flex: 1 }}><Text style={s.statusText}>✦ {ko ? '내 자재' : 'My materials'} {state.materials}</Text>
+      <Text style={s.small}>{ko ? '이번 주 내 기여' : 'My contribution this week'} {state.myContribution}</Text></View>
+      <WeeklyRankingButton category="community" language={language} load={loadRanking} /></View>
       <Text style={s.small}>{ko ? '생명나무' : 'Life tree'} · {(ko ? ['새싹', '어린 나무', '풍성한 나무'] : ['Sprout', 'Young tree', 'Lush tree'])[lifeTreeStage(state)]} · {ko ? '시설 성장과 함께 자라요' : 'Grows with our facilities'}</Text></View>
     {state.facilities.map(item => <Pressable key={item.id} accessibilityRole="button"
       accessibilityLabel={`${name(item.id)} Lv.${item.level} · ${ko ? '기여하기' : 'Contribute'}`}
@@ -165,6 +168,7 @@ export function CommunityWorld({ state, pet, now, language, command, locked, tre
 }
 
 const s = StyleSheet.create({
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   world: { flex: 1, backgroundColor: '#143B37', overflow: 'hidden' }, topShade: { position: 'absolute', top: 0, left: 0, right: 0, height: 92, backgroundColor: '#082C2ABA' },
   background: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' },
   status: { position: 'absolute', top: 12, left: 18, right: 18, paddingHorizontal: 15, paddingVertical: 10, borderRadius: 15, backgroundColor: '#0D3C35D9', borderWidth: 1, borderColor: '#D4C47A' },

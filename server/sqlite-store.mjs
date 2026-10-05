@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { randomInt, randomUUID } from 'node:crypto';
+import { createHash, randomInt, randomUUID } from 'node:crypto';
 import { starterProgress, parseProgress, hit, rollCombatDamage, recoveryOwned, collect, loadTrolley, dispatchTrolley, recover, regrow, upgrade, equipAxeSkin, equip, claimFirstRecord, claimGrowthReward, claimWardenReward, openGem, walletUnlocked, questSteps, attackIntervalMs } from '../src/game/progression.ts';
 import { createMemoryGameService, parseRequest } from './game-service.ts';
 import { claimAdventure, claimForestTrail, drawWoodGem, fuseGems, growthMilestoneReady, useFatiguePotion } from '../src/game/progression.ts';
@@ -107,6 +107,8 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
         PRIMARY KEY(player_id, week_start, stage)
       ) STRICT;
       INSERT OR IGNORE INTO world_boss_shared_weeks SELECT DISTINCT week_start,10000 FROM world_boss_hits;
+      CREATE INDEX IF NOT EXISTS community_rank_week ON community_contributions(week_start,player_id);
+      CREATE INDEX IF NOT EXISTS boss_rank_week ON world_boss_hits(week_start,player_id);
       ${mode === 'local' ? 'CREATE TABLE IF NOT EXISTS local_test_admins (player_id TEXT PRIMARY KEY REFERENCES players(id)) STRICT;' : ''}
       ${version < 5 ? 'ALTER TABLE play_state ADD COLUMN last_hit INTEGER NOT NULL DEFAULT 0;' : ''}
       PRAGMA user_version = 9;
@@ -214,6 +216,38 @@ export function openGameStore(path, { random = () => randomInt(0, 2 ** 32) / 2 *
       return load(accountId);
     },
     load,
+    leaderboard(accountId, category) {
+      id(accountId);
+      if (!['community', 'world-boss'].includes(category)) throw new Error('INVALID_COMMAND');
+      const time = now(), weekStart = communityWeekStart(time);
+      // Only wallet-linked, server-origin progress qualifies. Local admin grants permanently
+      // mark provenance as local-test, even if the server later runs in preview mode.
+      const source = category === 'community'
+        ? `SELECT c.player_id,SUM(c.amount) AS score,
+            SUM(CASE WHEN c.facility='mine' THEN c.amount ELSE 0 END) AS mine,
+            SUM(CASE WHEN c.facility='saplings' THEN c.amount ELSE 0 END) AS saplings
+           FROM community_contributions c JOIN players p ON p.id=c.player_id
+           WHERE c.week_start=? AND p.provenance='server'
+             AND EXISTS (SELECT 1 FROM wallet_links w WHERE w.player_id=p.id)
+           GROUP BY c.player_id HAVING SUM(c.amount)>0`
+        : `SELECT h.player_id,ROUND(h.damage,2) AS score,h.hits
+           FROM world_boss_hits h JOIN players p ON p.id=h.player_id
+           WHERE h.week_start=? AND h.damage>0 AND p.provenance='server'
+             AND EXISTS (SELECT 1 FROM wallet_links w WHERE w.player_id=p.id)`;
+      const ranked = `WITH scores AS (${source}), ranked AS
+        (SELECT *,RANK() OVER (ORDER BY score DESC) AS rank FROM scores)`;
+      const entry = row => row ? {
+        tag: createHash('sha256').update(`lumber-rank:${row.player_id}`).digest('hex').slice(0, 12),
+        rank: row.rank, score: row.score, isMe: row.player_id === accountId,
+        ...(category === 'community' ? { mine: row.mine, saplings: row.saplings } : { hits: row.hits }),
+      } : null;
+      const entries = db.prepare(`${ranked} SELECT * FROM ranked ORDER BY score DESC,player_id ASC LIMIT 10`).all(weekStart).map(entry);
+      const mine = db.prepare(`${ranked} SELECT * FROM ranked WHERE player_id=?`).get(weekStart, accountId);
+      const participants = db.prepare(`${ranked} SELECT COUNT(*) AS n FROM ranked`).get(weekStart).n;
+      const eligible = !!db.prepare("SELECT 1 FROM players p WHERE p.id=? AND p.provenance='server' AND EXISTS (SELECT 1 FROM wallet_links w WHERE w.player_id=p.id)").get(accountId);
+      return { category, weekStart, resetsAt: weekStart + 7 * 86400000, asOf: time,
+        participants, eligible, entries, mine: entry(mine) };
+    },
     execute(accountId, input) {
       id(accountId);
       const r = parseRequest(input);

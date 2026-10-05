@@ -33,6 +33,13 @@ module.exports = () => {
     icon: './assets/lumber-rush-icon-v2.png',
     android: {
       ...expo.android,
+      blockedPermissions: [...new Set([...(expo.android?.blockedPermissions || []),
+        'android.permission.SYSTEM_ALERT_WINDOW',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.RECORD_AUDIO',
+        'android.permission.CAMERA',
+      ])],
       package: preview ? 'com.lumberrush.seeker.preview' : expo.android.package,
       adaptiveIcon: {
         backgroundColor: '#0E3A37',

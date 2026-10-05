@@ -12,15 +12,39 @@ The player holds to chop an ancient tree, sweeps fallen wood into a trolley or d
 4. Complete the early growth quests and claim the free First Growth Axe. Equip it to continue. No SOL balance or transaction is required for this reward.
 5. Optional: choose the commemorative record below the main quests. Review the real SOL network fee and public Memo notice before signing with a Mainnet wallet. Cancel, lack of SOL or a record-service outage never prevents progression. Recording adds a verified badge and Explorer link, not extra currency or combat advantages.
 
-The current source uses **Mainnet** for wallet authorization and optional records. Older installed previews used Devnet; those receipts are preserved and labelled separately. The game does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. These changes require server deployment and a new APK before they describe a downloadable build.
+The October 3 preview uses **Mainnet** for wallet authorization and optional records. Older previews used Devnet; those receipts are preserved and labelled separately. The game does not sell SOL/SKR items, award real tokens, or operate a ranked airdrop. Optional real Mainnet transaction QA is separate from successful gameplay testing.
 
 ## Current source and release status
 
-The current source also includes a shared forest with daily/weekly material quests, contributions to a mine and sapling trail, and a squirrel pet that explores either facility for four hours. Facility levels affect the expedition reward quoted at departure. The world-boss forest records up to 100 attacks per account each week. Current source adds once-per-stage personal rewards: 20 attacks grant one low-tier gem, 50 grant first-attack tree level × 20 coins, and 100 grant one fatigue potion. Community damage goals initially start at 10,000/20,000/30,000, granting an additional 1 low-tier gem / 2 low-tier gems / 1 medium-tier gem to everyone with at least 20 weekly attacks. Goals adapt within ±25% each week and stay fixed during that week. Earned unclaimed rewards persist across weeks. These rewards need an updated server/client and device QA; they are in-game rewards, not on-chain payouts or damage-ranked prizes. The sapling farm unlocks at tree level 15: plant, solve a water-path puzzle, grow and collect karma. Spend 4 karma for 20 minutes of double wood and coins from chopping and felling only. Original CC0 music and sound effects have separate volume controls.
+The released October 3 preview includes a shared forest with daily/weekly material quests,
+contributions to a mine and sapling trail, and a squirrel pet that explores either facility
+for four hours. Facility levels affect the expedition reward quoted at departure.
 
-These are source-level features, not proof that the downloadable APK or hosted API contains the same version. See [release candidate checks](docs/release-candidate-2026-10-01.md) for verified checks and remaining real-device gates. Demo accounts with prior progression must be identified; ordinary chopping and community activity are server-managed, not on-chain transactions.
+The world-boss forest records up to 100 attacks per account each week. Once-per-stage
+personal rewards: 20 attacks grant one low-tier gem, 50 grant first-attack tree level × 20
+coins, and 100 grant one fatigue potion. Community damage goals initially start at
+10,000/20,000/30,000, granting an additional 1 low-tier gem / 2 low-tier gems / 1 medium-tier
+gem to everyone with at least 20 weekly attacks. Goals adapt within ±25% each week and
+stay fixed during that week. Earned unclaimed rewards persist across weeks. These are
+in-game rewards, not on-chain payouts or damage-ranked prizes.
+
+The sapling farm unlocks at tree level 15: plant, solve a water-path puzzle, grow and collect
+karma. Spend 4 karma for 20 minutes of double wood and coins from chopping and felling
+only. Third-party CC0 music and sound effects have separate volume controls.
+
+The October 3 server and signed Preview APK were released from commit `637060aa8d5d9a8e75fab246622d4fcf4b5f7e1d`. The maintainer reported successful phone gameplay checks on October 5; this is not a penetration-test certificate or proof of every optional blockchain flow. See [release evidence](docs/release-2026-10-03.md). Subsequent security edits require a new deployment/APK and must not be described as already included. Demo accounts with prior progression must be identified; ordinary chopping and community activity are server-managed, not on-chain transactions.
+
+The current [Preview APK](https://expo.dev/artifacts/eas/36aJjxCCqCyx_y_YYwS8IMOapKN0Ua6kJBE8dkAj_ug.apk) has an EAS expiration date of October 17. A durable final-submission download URL is still pending; do not rely on this temporary link for the full judging period.
 
 ## Architecture
+
+October 5 local source adds weekly contribution rankings inside the community forest
+and world-boss forest (not the map): top 10 and your own rank, with shared ranks for ties.
+Forest scores combine materials donated to both facilities; boss scores use server-recorded
+damage. Only wallet-linked server-origin accounts qualify; local test admins are excluded.
+Labels are stable pseudonyms, not wallet addresses. Rankings award no extra prizes and
+reset Monday 00:00 UTC without deleting history. This requires a server update and new
+APK; it is **not included in the October 3 download above**.
 
 - `App.tsx` and `src/`: Expo/React Native game UI, local practice, Solana wallet and server client code.
 - `server/`: Node 24 HTTP API, game rules and persistent SQLite store. Server-confirmed data is authoritative for connected accounts.
@@ -48,4 +72,4 @@ The production API and EAS environment URLs must be configured by the maintainer
 
 ## Limits and safety
 
-Connected progress depends on the hosted API and its database. Local practice and connected accounts are intentionally separate. Solana transactions are only used for explicit record steps, not every chop. Public rankings, paid items, automatic airdrops, and pet automation are not enabled. Report issues through the contact information in the hackathon submission.
+Connected progress depends on the hosted API and its database. Local practice and connected accounts are intentionally separate. Solana transactions are only used for explicit record steps, not every chop. Public rankings, paid items, automatic airdrops, and pet automation are not enabled. Support/privacy/deletion requests: **hi.mellowcat@gmail.com**. See [privacy and support](docs/privacy.md) and [audio provenance](assets/audio/README.md). A backup restoration exercise and edge-level attack protection are not yet verified.

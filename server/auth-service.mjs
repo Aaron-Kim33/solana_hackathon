@@ -23,11 +23,25 @@ export function openAuthService(path, { origin, now = Date.now } = {}) {
     CREATE TABLE IF NOT EXISTS wallet_links (wallet TEXT PRIMARY KEY, player_id TEXT NOT NULL UNIQUE REFERENCES players(id)) STRICT;
     CREATE TABLE IF NOT EXISTS auth_challenges (id TEXT PRIMARY KEY, wallet TEXT NOT NULL, origin TEXT NOT NULL, message TEXT NOT NULL, issued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0) STRICT;
     CREATE TABLE IF NOT EXISTS auth_sessions (token_hash TEXT PRIMARY KEY, player_id TEXT NOT NULL REFERENCES players(id), origin TEXT NOT NULL, issued_at INTEGER NOT NULL, expires_at INTEGER NOT NULL) STRICT;
+    CREATE INDEX IF NOT EXISTS auth_challenges_expiry ON auth_challenges(expires_at);
+    CREATE INDEX IF NOT EXISTS auth_challenges_wallet ON auth_challenges(wallet,expires_at);
+    CREATE INDEX IF NOT EXISTS auth_sessions_expiry ON auth_sessions(expires_at);
   `);
+  let cleanupAt = 0;
+  const cleanup = time => {
+    if (time < cleanupAt) return;
+    // Only ephemeral authentication rows; never delete wallets, players or progress.
+    db.prepare('DELETE FROM auth_challenges WHERE expires_at <= ? OR used = 1').run(time);
+    db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ?').run(time);
+    cleanupAt = time + 60_000;
+  };
   return {
     challenge(wallet) {
       walletKey(wallet);
       const time = now(), expiresAt = time + CHALLENGE_MS, challengeId = randomUUID();
+      cleanup(time);
+      if (db.prepare('SELECT count(*) AS n FROM auth_challenges WHERE wallet=? AND used=0 AND expires_at>?').get(wallet, time).n >= 3 ||
+          db.prepare('SELECT count(*) AS n FROM auth_challenges WHERE used=0 AND expires_at>?').get(time).n >= 2000) throw new Error('RATE_LIMITED');
       const nonce = randomBytes(24).toString('hex');
       const message = `${url.host} requests a Lumber Rush login.\nWallet: ${wallet}\nThis signature only signs you in. It does not transfer funds.\nOrigin: ${origin}\nNonce: ${nonce}\nIssued At: ${new Date(time).toISOString()}\nExpires At: ${new Date(expiresAt).toISOString()}`;
       db.prepare('INSERT INTO auth_challenges (id,wallet,origin,message,issued_at,expires_at) VALUES (?,?,?,?,?,?)').run(challengeId, wallet, origin, message, time, expiresAt);
@@ -37,6 +51,7 @@ export function openAuthService(path, { origin, now = Date.now } = {}) {
       if (typeof challengeId !== 'string' || challengeId.length > 64 || typeof signatureBase64 !== 'string' || signatureBase64.length !== 88) throw new Error('INVALID_SIGNATURE');
       const signature = Buffer.from(signatureBase64, 'base64');
       if (signature.length !== 64 || signature.toString('base64') !== signatureBase64) throw new Error('INVALID_SIGNATURE');
+      cleanup(now());
       db.exec('BEGIN IMMEDIATE');
       try {
         const time = now();
@@ -58,6 +73,7 @@ export function openAuthService(path, { origin, now = Date.now } = {}) {
     },
     authenticate(token) {
       if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) throw new Error('UNAUTHENTICATED');
+      cleanup(now());
       const session = db.prepare('SELECT * FROM auth_sessions WHERE token_hash = ?').get(hash(token)), time = now();
       if (!session || session.origin !== origin || time < session.issued_at || time >= session.expires_at) throw new Error('UNAUTHENTICATED');
       return session.player_id;

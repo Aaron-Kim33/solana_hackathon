@@ -6,11 +6,14 @@ import { ForesterSprite } from './ForesterSprite';
 import { ServerActionNotice, type ServerActionNoticeProps } from './ServerActionNotice';
 import type { GameCommand } from '../shared/server-contract';
 import { WORLD_BOSS_WEEKLY_HITS, WORLD_BOSS_SHARED_MIN_HITS, type WorldBossSnapshot } from '../shared/world-boss';
+import { WeeklyRankingButton } from './WeeklyRankingButton';
+import type { LoadWeeklyRanking } from '../shared/weekly-ranking';
 
-export function WorldBossWorld({ state, progress, language, command, locked, lastDamage, onRefresh, actionNotice, initialRewardsOpen = false }: {
+export function WorldBossWorld({ state, progress, language, command, locked, lastDamage, onRefresh, actionNotice, loadRanking, initialRewardsOpen = false }: {
   state: WorldBossSnapshot; progress: Progress; language: 'ko' | 'en';
   command: (command: GameCommand) => boolean; locked: boolean; lastDamage?: number; onRefresh?: () => void; actionNotice?: ServerActionNoticeProps;
   initialRewardsOpen?: boolean;
+  loadRanking: LoadWeeklyRanking;
 }) {
   const { play: playSound } = useGameAudio();
   const ko = language === 'ko';
@@ -95,7 +98,8 @@ export function WorldBossWorld({ state, progress, language, command, locked, las
     }]}>−{damageLabel.toLocaleString()}</Animated.Text>}
     <View style={s.stats}>
       <Text style={s.title}>{ko ? '고목의 분노' : 'Wrath of the Ancient Tree'}</Text>
-      <Text style={s.line}>{ko ? '이번 주 공격' : 'Weekly attacks'}  {state.hits} / {WORLD_BOSS_WEEKLY_HITS}</Text>
+      <View style={s.rankRow}><Text style={[s.line, { flex: 1 }]}>{ko ? '이번 주 공격' : 'Weekly attacks'}  {state.hits} / {WORLD_BOSS_WEEKLY_HITS}</Text>
+        <WeeklyRankingButton category="world-boss" language={language} load={loadRanking} beforeOpen={stop} /></View>
       <View style={s.track}><View style={[s.fill, { width: `${state.hits}%` }]} /></View>
       <Text style={s.small}>{ko ? '내 누적 피해' : 'My damage'} {state.damage.toLocaleString()}  ·  {ko ? '피로도' : 'Fatigue'} {progress.fatigue}%</Text>
     </View>
@@ -167,6 +171,7 @@ export function WorldBossWorld({ state, progress, language, command, locked, las
 }
 
 const s = StyleSheet.create({
+  rankRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   world: { flex: 1, overflow: 'hidden', backgroundColor: '#0D282C' },
   background: { position: 'absolute', left: '-2%', width: '104%', height: '100%' },
   topShade: { position: 'absolute', top: 0, left: 0, right: 0, height: 170, backgroundColor: '#09252BD9' },
@@ -176,7 +181,7 @@ const s = StyleSheet.create({
   impactCore: { width: 30, height: 30, borderRadius: 6, backgroundColor: '#FFF0B1', transform: [{ rotate: '45deg' }], borderWidth: 4, borderColor: '#F6B75E' },
   impactRay: { position: 'absolute', width: 76, height: 5, borderRadius: 3, backgroundColor: '#FFE7A4' },
   floatingDamage: { position: 'absolute', left: '52%', bottom: '37%', color: '#FFE5A0', fontSize: 27, fontWeight: '900', textShadowColor: '#3D2619', textShadowRadius: 6, zIndex: 4 },
-  stats: { marginHorizontal: 15, marginTop: 14, padding: 14, borderRadius: 18, backgroundColor: '#102C31DB', borderColor: '#B68B61', borderWidth: 1 },
+  stats: { marginHorizontal: 15, marginTop: 14, padding: 14, borderRadius: 18, backgroundColor: '#102C31DB', borderColor: '#B68B61', borderWidth: 1, zIndex: 5 },
   title: { color: '#FFE0A4', fontSize: 22, fontWeight: '900', marginBottom: 8 },
   line: { color: '#FFF2D1', fontSize: 15, fontWeight: '800' },
   track: { height: 9, borderRadius: 6, backgroundColor: '#42615A', overflow: 'hidden', marginTop: 8, marginBottom: 7 },

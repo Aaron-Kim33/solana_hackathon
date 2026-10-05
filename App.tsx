@@ -1153,10 +1153,11 @@ function LocalGame({ server, uiLanguage, onLanguage }: { server?: ServerControll
               commit(claimFarmTree(progressRef.current, Date.now(), plot));
             }} /> : panel === 'community' && online && server!.snapshot?.community ? <CommunityWorld state={server!.snapshot.community}
             pet={server!.snapshot.squirrel} now={server!.now} treeLevel={progress.treeLevel} language={language}
-            command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0} />
+            command={server!.command} loadRanking={server!.loadRanking} locked={server!.busy || server!.pending || server!.queued > 0} />
             : panel === 'worldBoss' && online && server!.snapshot?.worldBoss ? <WorldBossWorld state={server!.snapshot.worldBoss}
               progress={progress} language={language} command={server!.command} locked={server!.busy || server!.pending || server!.queued > 0}
               lastDamage={server!.snapshot.lastBossDamage} onRefresh={server!.refresh} initialRewardsOpen={bossRewardsOnEntry}
+              loadRanking={server!.loadRanking}
               actionNotice={{ notice: server!.notice, pending: server!.pending, busy: server!.busy, language, onRetry: server!.retryPending }} /> : null}
         </SafeAreaView>
       </Modal>

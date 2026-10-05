@@ -20,6 +20,7 @@ import { clearServerSession, readServerSession, writeServerSession } from './ser
 import { parseServerSnapshot } from './server-snapshot';
 import { confirmedCollectionTutorial } from './confirmed-tutorial';
 import type { PlayerSnapshot, GameCommand, CommandRequest } from '../shared/server-contract';
+import type { LoadWeeklyRanking } from '../shared/weekly-ranking';
 
 // Survives menu navigation, not app reload. Never written to the ordinary save file.
 const sessionCache: { token: string | null; state: PlayerSnapshot | null; pending: CommandRequest | null } = { token: null, state: null, pending: null };
@@ -48,6 +49,7 @@ export type ServerController = {
   canChop: boolean; controls: ReactNode; notice: string; confirmedTutorialMask: number; retryPending: () => void;
   resetTutorialConfirmations: () => void;
   connect: () => void; refresh: () => void;
+  loadRanking: LoadWeeklyRanking;
   hit: () => boolean; command: (command: GameCommand) => boolean; dragging: (value: boolean) => void;
   record: () => Promise<void>; checkRecord: () => Promise<void>;
 };
@@ -418,6 +420,10 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     retryPending: () => { if (!collecting.current) void action(); },
     resetTutorialConfirmations: () => setConfirmedTutorialMask(0),
     connect: () => { if (!restoring) void run(false); },
+    loadRanking: async category => {
+      if (!token.current) throw new Error('UNAUTHENTICATED');
+      return api(`/leaderboards/${category}`, undefined, token.current);
+    },
     refresh: () => { if (!lock.current && !inputQueue.current.size && !sessionCache.pending && token.current) {
       lock.current = true; setBusy(true);
       void api('/me', undefined, token.current).then(updateState)
@@ -427,7 +433,7 @@ export function ServerLoginPanel({ language, renderMain }: { language: 'ko' | 'e
     hit: enqueueHit, dragging: setCollecting, record, checkRecord,
     command: command => !collecting.current && enqueue(command),
     controls: <View style={{ gap: 10 }}>
-      <Text style={{ color: '#B9D5CC' }}>{ko ? '지갑 연결과 서버 저장은 무료예요. 선택형 Mainnet 기념 기록에만 네트워크 수수료가 필요해요. 로컬 연습과 별도이며 랭킹은 준비 중이에요.' : 'Wallet login and server saves are free. Only optional Mainnet records require a network fee. Separate from local practice; rankings are not live.'}</Text>
+      <Text style={{ color: '#B9D5CC' }}>{ko ? '지갑 연결과 서버 저장은 무료예요. 선택형 Mainnet 기념 기록에만 네트워크 수수료가 필요해요. 주간 순위에는 서버에서 확인한 기여만 반영돼요.' : 'Wallet login and server saves are free. Only optional Mainnet records require a network fee. Weekly rankings use server-verified contributions only.'}</Text>
       {button(token.current ? (ko ? '서버 상태 새로고침' : 'Refresh server state') : (ko ? '서버 저장 연결 · 지갑 서명' : 'Connect server save · Sign with wallet'), false)}
       {state && button(ko ? '서버 로그아웃 · 로컬 저장 복귀' : 'Sign out · Restore local save', true)}
       {state && token.current && <Pressable accessibilityRole="button" disabled={navigationLocked} onPress={() => void checkRecord()} style={{ padding: 12 }}><Text style={{ color: '#E6EFDD' }}>{ko ? '기록 상태 확인 · 거래 재전송 없음' : 'Check record status · No resend'}</Text></Pressable>}

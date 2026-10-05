@@ -28,7 +28,7 @@ export function PlayGuide({ progress, saveMode, onQuests, onGems }: { progress: 
       <Text style={s.text}>{ko ? '지갑 연결은 무료 메시지 서명이며 SOL 수수료가 없어요. 첫 성장 도끼도 기록 없이 받아요. Mainnet 기념 기록만 선택형 유료 거래예요. 실제 SOL 네트워크 수수료가 필요하며, 취소해도 성장에는 불이익이 없어요. NFT나 전체 플레이의 온체인 증명은 아니에요.' : 'Wallet login is a free message signature with no SOL fee. Claim your growth axe without recording. Only the optional Mainnet commemorative record is a paid transaction with a real SOL network fee. Cancelling never blocks growth. It is not an NFT or proof of all gameplay.'}</Text>
       {confirmed && <Text style={s.text}>{ko ? 'Mainnet 기념 기록이 확인됐어요.' : 'Mainnet commemorative record confirmed.'}</Text>}
       <Text style={s.text}>{saveMode === 'server'
-        ? (ko ? '지금 진행은 서버에 저장돼요. 기기의 연습 저장과 합쳐지지 않고 랭킹에도 반영되지 않아요.' : 'This progress is saved on the server. It does not merge with local practice or count toward rankings.')
+        ? (ko ? '지금 진행은 서버에 저장돼요. 공동 숲·월드보스에서 주간 기여 순위를 볼 수 있어요. 기기의 연습 저장과 합쳐지지 않으며 개발 테스트 계정은 순위에서 제외돼요.' : 'This progress is saved on the server. View weekly contributions in the community forest and world boss. Local practice is separate; development test accounts are excluded from rankings.')
         : saveMode === 'practice'
           ? (ko ? '지금은 기기에만 저장되는 연습 진행이에요. 서버 로그인 시 별도 계정으로 시작하며 이 진행은 업로드되지 않아요.' : 'This is local-only practice. Server login starts a separate account; this progress is not uploaded.')
           : (ko ? '현재 진행은 기기에 저장돼요. 기념 기록은 NFT 발행이나 모든 플레이의 온체인 증명이 아니에요. 서버 저장에서만 선택할 수 있어요.' : 'Progress is stored on this device. A commemorative record is not an NFT mint or proof of all gameplay. It is optional in server saves only.')}</Text>

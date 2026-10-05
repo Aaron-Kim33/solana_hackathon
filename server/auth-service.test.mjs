@@ -10,6 +10,36 @@ import { openGameStore } from './sqlite-store.mjs';
 import { openAuthService, authenticatedGame } from './auth-service.mjs';
 const keypair = () => { const pair = generateKeyPairSync('ed25519'); return { ...pair, address: new PublicKey(pair.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32)).toBase58() }; };
 const signed = (challenge, pair) => sign(null, Buffer.from(challenge.message), pair.privateKey).toString('base64');
+
+test('challenge flood is bounded per wallet without invalidating existing signatures', t => {
+  const f = fixture(t), auth = f.open(), pair = keypair();
+  const first = auth.challenge(pair.address);
+  auth.challenge(pair.address); auth.challenge(pair.address);
+  assert.throws(() => auth.challenge(pair.address), /RATE_LIMITED/);
+  assert.equal(typeof auth.login(first.challengeId, signed(first, pair)).token, 'string');
+  assert.equal(typeof auth.challenge(pair.address).challengeId, 'string');
+  f.advance(300000);
+  assert.equal(typeof auth.challenge(pair.address).challengeId, 'string');
+});
+
+test('cleanup removes expired authentication rows but preserves active sessions and game data', t => {
+  const f = fixture(t), auth = f.open(), pair = keypair();
+  const c = auth.challenge(pair.address), session = auth.login(c.challengeId, signed(c, pair));
+  const waiting = auth.challenge(pair.address);
+  f.advance(300000);
+  assert.equal(auth.authenticate(session.token), session.playerId);
+  const db = new DatabaseSync(f.path);
+  try {
+  assert.equal(db.prepare('SELECT count(*) AS n FROM auth_challenges').get().n, 0);
+  assert.throws(() => auth.login(waiting.challengeId, signed(waiting, pair)), /CHALLENGE_UNAVAILABLE/);
+  assert.equal(f.store.load(session.playerId).progress.wood, 10);
+  f.advance(86400000);
+  assert.throws(() => auth.authenticate(session.token), /UNAUTHENTICATED/);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM auth_sessions').get().n, 0);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM wallet_links').get().n, 1);
+  assert.equal(f.store.load(session.playerId).progress.wood, 10);
+  } finally { db.close(); }
+});
 function fixture(t) {
   const folder = mkdtempSync(join(tmpdir(), 'lumber-auth-test-')), path = join(folder, 'test.sqlite');
   const store = openGameStore(path), services = [];
